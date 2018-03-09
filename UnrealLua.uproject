@@ -8,6 +8,11 @@
 			"Name": "UnrealLua",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "Lua",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
 		}
 	]
 }
