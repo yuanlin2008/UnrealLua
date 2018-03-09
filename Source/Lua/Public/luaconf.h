@@ -241,19 +241,29 @@
 ** the libraries, you may want to use the following definition (define
 ** LUA_BUILD_AS_DLL to get it).
 */
-#if defined(LUA_BUILD_AS_DLL)	/* { */
+//#if defined(LUA_BUILD_AS_DLL)	/* { */
 
-#if defined(LUA_CORE) || defined(LUA_LIB)	/* { */
-#define LUA_API __declspec(dllexport)
-#else						/* }{ */
-#define LUA_API __declspec(dllimport)
-#endif						/* } */
+//#if defined(LUA_CORE) || defined(LUA_LIB)	/* { */
+//#define LUA_API __declspec(dllexport)
+//#else						/* }{ */
+//#define LUA_API __declspec(dllimport)
+//#endif						/* } */
 
-#else				/* }{ */
+//#else				/* }{ */
 
-#define LUA_API		extern
+//#define LUA_API		extern
 
-#endif				/* } */
+//#endif				/* } */
+
+#if !defined(DLLEXPORT)
+#if defined(LUA_PLATFORM_Win32) || defined(LUA_PLATFORM_Win64)
+#define DLLEXPORT __declspec(dllexport)
+#elif defined(LUA_PLATFORM_Andriod) || defined(LUA_PLATFORM_Linux)
+#define DLLEXPORT __attribute__((visibility("default")))
+#else
+#define DLLEXPORT
+#endif
+#endif//DLLEXPORT
 
 
 /* more often than not the libs go together with the core */
