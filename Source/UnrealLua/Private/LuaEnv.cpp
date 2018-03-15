@@ -1,12 +1,8 @@
 #include "LuaEnv.h"
+#include "UObjectIterator.h"
 #include "lua.hpp"
 
 TMap<lua_State*, FLuaEnv*> FLuaEnv::luaEnvMap_;
-
-FLuaEnv* FLuaEnv::getLuaEnv(lua_State* L)
-{
-	return luaEnvMap_[L];
-}
 
 FLuaEnv::FLuaEnv():
 	luaState_(nullptr)
@@ -20,6 +16,16 @@ FLuaEnv::~FLuaEnv()
 {
 	luaEnvMap_.Remove(luaState_);
 	lua_close(luaState_);
+}
+
+void FLuaEnv::exportBPFLibs()
+{
+	for (TObjectIterator<UClass> it; it; ++it)
+	{
+		UClass* cls = *it;
+		if (!cls->IsChildOf(UBlueprintFunctionLibrary::StaticClass()))
+			continue;
+	}
 }
 
 void FLuaEnv::pushPropertyValue(UObject* obj, UProperty* prop)
