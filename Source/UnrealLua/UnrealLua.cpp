@@ -4,10 +4,6 @@
 #include "Modules/ModuleManager.h"
 #include "lua.hpp"
 
-void test()
-{
-	lua_newstate(nullptr, nullptr);
-	lua_pushboolean(nullptr, 0);
-}
+DEFINE_LOG_CATEGORY(UnrealLua);
 
 IMPLEMENT_PRIMARY_GAME_MODULE( FDefaultGameModuleImpl, UnrealLua, "UnrealLua" );

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CoreMinimal.h"
+#include "UnrealLua.h"
 #include "GCObject.h"
 
 struct lua_State;
@@ -23,8 +23,13 @@ public:
 	/** Fetch obj's perperty value from lua stack. */
 	void fetchPerpertyValue(UObject* obj, UProperty* prop, int idx);
 
+	/** Invoke a blueprint function library function. */
+	int invokeBPFLFunc();
+
 private:
 	void exportBPFLibs();
+	void exportBPFLib(UClass* bflCls);
+	void exportBPFLFunc(const char* clsName, UFunction* f);
 
 	static TMap<lua_State*, FLuaEnv*> luaEnvMap_;
 
