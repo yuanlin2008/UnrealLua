@@ -23,13 +23,15 @@ public:
 	/** Fetch obj's perperty value from lua stack. */
 	void fetchPerpertyValue(UObject* obj, UProperty* prop, int idx);
 
-	/** Invoke a blueprint function library function. */
-	int invokeBPFLFunc();
+	/** Invoke a UFunction from lua stack. */
+	int invokeUFunction();
 
 private:
 	void exportBPFLibs();
 	void exportBPFLib(UClass* bflCls);
 	void exportBPFLFunc(const char* clsName, UFunction* f);
+
+	void pushUFunction(UFunction* f);
 
 	static TMap<lua_State*, FLuaEnv*> luaEnvMap_;
 

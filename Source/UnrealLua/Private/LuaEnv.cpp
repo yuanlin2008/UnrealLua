@@ -44,29 +44,39 @@ void FLuaEnv::exportBPFLib(UClass* bflCls)
 		exportBPFLFunc(clsName, *it);
 }
 
-static int bpflFunctionWrapper(lua_State* L)
+static int luaUFunctionWrapper(lua_State* L)
 {
 	FLuaEnv* luaEnv = FLuaEnv::getLuaEnv(L);
-	return luaEnv->invokeBPFLFunc();
+	return luaEnv->invokeUFunction();
 }
 
 void FLuaEnv::exportBPFLFunc(const char* clsName, UFunction* f)
 {
-	if((f->FunctionFlags & FUNC_Static) == 0)
-		return;
 	ULUA_LOG(Verbose, TEXT("Export Function \"%s\""), *(f->GetName()));
-	lua_getglobal(luaState_, clsName);
-	// push a c closure.
-	// upvalue[1] = UFunction.
-	lua_pushlightuserdata(luaState_, f);
-	lua_pushcclosure(luaState_, bpflFunctionWrapper, 1);
 	// ["libname"].func_name = function.
+	lua_getglobal(luaState_, clsName);
+	pushUFunction(f);
 	lua_setfield(luaState_, -2, TCHAR_TO_UTF8(*(f->GetName())));
 }
 
-int FLuaEnv::invokeBPFLFunc()
+void FLuaEnv::pushUFunction(UFunction* f)
 {
+	// upvalue[1] = UFunction.
+	lua_pushlightuserdata(luaState_, f);
+	lua_pushcclosure(luaState_, luaUFunctionWrapper, 1);
+}
+
+int FLuaEnv::invokeUFunction()
+{
+	// UFunction = upvalue[1].
 	UFunction* func = (UFunction*)lua_touserdata(luaState_, lua_upvalueindex(1));
+
+	if (func->FunctionFlags & FUNC_Static)
+	{
+	}
+	else
+	{
+	}
 
 	return 0;
 }
