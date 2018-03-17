@@ -53,7 +53,7 @@ void* FLuaEnv::memAlloc(void* ptr, size_t osize, size_t nsize)
 	if(nsize == 0)
 	{
 		FMemory::Free(ptr);
-		return NULL;
+		return nullptr;
 	}
 	else
 		return FMemory::Realloc(ptr, nsize);
@@ -82,12 +82,12 @@ int FLuaEnv::invokeUFunction()
 	{
 		FParamBuffer(UFunction* f, uint8* b):func_(f),buffer_(b)
 		{
-			for(TFieldIterator<UProperty> it(func_); it && (it->PropertyFlags & CPF_Parm); ++it)
+			for(TFieldIterator<UProperty> it(func_); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
 				(*it)->InitializeValue_InContainer(buffer_);
 		}
 		~FParamBuffer()
 		{
-			for(TFieldIterator<UProperty> it(func_); it && (it->PropertyFlags & CPF_Parm); ++it)
+			for(TFieldIterator<UProperty> it(func_); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
 				(*it)->DestroyValue_InContainer(buffer_);
 		}
 		UFunction* func_;

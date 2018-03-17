@@ -14,7 +14,7 @@ class UNREALLUA_API AUnrealLuaGameModeBase : public AGameModeBase
 {
 	GENERATED_BODY()
 	
-	
-	
-	
+public:
+	UFUNCTION()
+	UObject* testfunc(UObject*& o, int& i, const FVector v) { return nullptr; }
 };
