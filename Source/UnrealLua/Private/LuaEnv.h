@@ -8,23 +8,8 @@ struct lua_State;
 class FLuaEnv : public FGCObject
 {
 public:
-	/** Get FLuaEnv from lua_State. */
-	static FLuaEnv* getLuaEnv(lua_State* L) { return luaEnvMap_[L]; }
-
 	FLuaEnv();
 	~FLuaEnv();
-
-	/** Get lua_State.  */
-	lua_State* getLuaState() { return luaState_;}
-
-	/** Push obj's property value to lua stack. */
-	void pushPropertyValue(UObject* obj, UProperty* prop);
-
-	/** Fetch obj's perperty value from lua stack. */
-	void fetchPerpertyValue(UObject* obj, UProperty* prop, int idx);
-
-	/** Invoke a UFunction from lua stack. */
-	int invokeUFunction();
 
 private:
 	void exportBPFLibs();
@@ -32,8 +17,19 @@ private:
 	void exportBPFLFunc(const char* clsName, UFunction* f);
 
 	void pushUFunction(UFunction* f);
+	/** Invoke a UFunction from lua stack. */
+	int invokeUFunction();
+	/** Memory allocation function for lua vm. */
+	void* memAlloc(void* ptr, size_t osize, size_t nsize);
+
+	static FLuaEnv* getLuaEnv(lua_State* L) { return luaEnvMap_[L]; }
+	static void* luaAlloc(void* ud, void* ptr, size_t osize, size_t nsize);
+	static int luaPanic(lua_State* L);
+	static int luaUFunctionWrapper(lua_State* L);
 
 	static TMap<lua_State*, FLuaEnv*> luaEnvMap_;
 
 	lua_State* luaState_;
+	/** Total memory used by this lua state. */
+	size_t memUsed_;
 };
