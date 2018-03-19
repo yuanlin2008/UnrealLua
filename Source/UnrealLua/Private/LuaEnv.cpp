@@ -50,10 +50,12 @@ FLuaEnv::FLuaEnv():
 
 	// Create UObject proxy metatable.
 	lua_newtable(luaState_);
-	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjIndex));
+	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjMTIndex));
 	lua_setfield(luaState_, -2, "__index");
-	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjNewIndex));
+	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjMTNewIndex));
 	lua_setfield(luaState_, -2, "__newindex");
+	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjMTCall));
+	lua_setfield(luaState_, -2, "__call");
 	uobjMetatable_ = luaL_ref(luaState_, LUA_REGISTRYINDEX);
 
 	exportBPFLibs();
@@ -108,6 +110,62 @@ void FLuaEnv::exportBPFLib(UClass* bflCls)
 
 	for(TFieldIterator<UFunction> it(bflCls, EFieldIteratorFlags::ExcludeSuper); it; ++it)
 		exportBPFLFunc(clsName, *it);
+}
+
+void FLuaEnv::exportBPFLFunc(const char* clsName, UFunction* f)
+{
+	ULUA_LOG(Verbose, TEXT("Export Function \"%s\""), *(f->GetName()));
+	// ["libname"].func_name = function.
+	lua_getglobal(luaState_, clsName);
+	//pushUFunction(f);
+	// todo.
+	lua_setfield(luaState_, -2, TCHAR_TO_UTF8(*(f->GetName())));
+}
+
+int FLuaEnv::callUFunction(UFunction* func)
+{
+	/** Memory buffer for function parameters. */
+	struct FParamBuffer
+	{
+		FParamBuffer(UFunction* f, uint8* b):func_(f),buffer_(b)
+		{
+			for(TFieldIterator<UProperty> it(func_); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
+				(*it)->InitializeValue_InContainer(buffer_);
+		}
+		~FParamBuffer()
+		{
+			for(TFieldIterator<UProperty> it(func_); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
+				(*it)->DestroyValue_InContainer(buffer_);
+		}
+		UFunction* func_;
+		uint8* buffer_;
+	};
+
+	// Create param buffer from current stack.
+	uint8* params = (uint8*)FMemory_Alloca(func->ParmsSize);
+	FParamBuffer b(func, params);
+
+	int paramIdx = 2;
+	for(TFieldIterator<UProperty> it(func); it && (it->PropertyFlags & (CPF_Parm|CPF_ReturnParm)) == CPF_Parm; ++it)
+	{
+		// todo.
+	}
+
+	//func->HasAnyFunctionFlags(FUNC_HasOutParms);
+	if (func->FunctionFlags & FUNC_Static)
+	{
+	}
+	else
+	{
+	}
+
+	return 0;
+}
+
+int FLuaEnv::callUClass(UClass* cls)
+{
+	// todo.
+	return 0;
 }
 
 void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx)
@@ -277,22 +335,6 @@ void FLuaEnv::pushName(FName name)
 	pushString(name.ToString());
 }
 
-void FLuaEnv::pushUFunction(UFunction* f)
-{
-	// upvalue[1] = UFunction.
-	lua_pushlightuserdata(luaState_, f);
-	lua_pushcclosure(luaState_, LUA_CALLBACK(invokeUFunction), 1);
-}
-
-void FLuaEnv::exportBPFLFunc(const char* clsName, UFunction* f)
-{
-	ULUA_LOG(Verbose, TEXT("Export Function \"%s\""), *(f->GetName()));
-	// ["libname"].func_name = function.
-	lua_getglobal(luaState_, clsName);
-	pushUFunction(f);
-	lua_setfield(luaState_, -2, TCHAR_TO_UTF8(*(f->GetName())));
-}
-
 //////////////////////////////////////////////////////////////////////////
 /************************************************************************/
 /* Lua Callbacks.                                                       */
@@ -316,56 +358,62 @@ int FLuaEnv::handlePanic()
 	return 0;
 }
 
-int FLuaEnv::invokeUFunction()
+int FLuaEnv::uobjMTIndex()
 {
-	/** Memory buffer for function parameters. */
-	struct FParamBuffer
+	UObject* obj = toUObject(1);
+	FName propName = toName(2);
+	// todo: optimize.
+	UField* field = FindField<UField>(obj->GetClass(), propName);
+	if (!field)
 	{
-		FParamBuffer(UFunction* f, uint8* b):func_(f),buffer_(b)
-		{
-			for(TFieldIterator<UProperty> it(func_); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
-				(*it)->InitializeValue_InContainer(buffer_);
-		}
-		~FParamBuffer()
-		{
-			for(TFieldIterator<UProperty> it(func_); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
-				(*it)->DestroyValue_InContainer(buffer_);
-		}
-		UFunction* func_;
-		uint8* buffer_;
-	};
-
-	// UFunction = upvalue[1].
-	UFunction* func = (UFunction*)lua_touserdata(luaState_, lua_upvalueindex(1));
-
-	// Create param buffer from current stack.
-	uint8* params = (uint8*)FMemory_Alloca(func->ParmsSize);
-	FParamBuffer b(func, params);
-
-	int paramIdx = 0;
-	for(TFieldIterator<UProperty> it(func); it && (it->PropertyFlags & (CPF_Parm|CPF_ReturnParm)) == CPF_Parm; ++it)
-	{
-		// todo.
+		lua_pushnil(luaState_);
 	}
-
-	//func->HasAnyFunctionFlags(FUNC_HasOutParms);
-	if (func->FunctionFlags & FUNC_Static)
+	else if (auto prop = Cast<UProperty>(field))
 	{
+		// Return property value.
+		pushPropertyValue(obj, prop);
+	}
+	else if (auto func = Cast<UFunction>(field))
+	{
+		// Return UFunction.
+		pushUObject(func);
+	}
+	return 1;
+}
+
+int FLuaEnv::uobjMTNewIndex()
+{
+	UObject* obj = toUObject(1);
+	FName propName = toName(2);
+	// todo: optimize.
+	UProperty* prop = FindField<UProperty>(obj->GetClass(), propName);
+	if (prop)
+	{
+		toPropertyValue(obj, prop, 3);
 	}
 	else
 	{
+		// todo.
 	}
-
 	return 0;
 }
 
-int FLuaEnv::uobjIndex()
+int FLuaEnv::uobjMTCall()
 {
 	UObject* obj = toUObject(1);
-	return 0;
-}
-
-int FLuaEnv::uobjNewIndex()
-{
+	if (auto func = Cast<UFunction>(obj))
+	{
+		// Call UFunction.
+		return callUFunction(func);
+	}
+	else if(auto cls = Cast<UClass>(obj))
+	{
+		// Call UClass
+		return callUClass(cls);
+	}
+	else
+	{
+		// todo.
+	}
 	return 0;
 }

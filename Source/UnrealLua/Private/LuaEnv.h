@@ -21,6 +21,9 @@ private:
 	void exportBPFLib(UClass* bflCls);
 	void exportBPFLFunc(const char* clsName, UFunction* f);
 
+	int callUFunction(UFunction* func);
+	int callUClass(UClass* cls);
+
 	/************************************************************************/
 	/* Lua stack to cpp.                                                    */
 	/************************************************************************/
@@ -52,9 +55,6 @@ private:
 	/** Push FName to lua stack. */
 	void pushName(FName name);
 
-
-	/** Push a UFunction to lua stack. */
-	void pushUFunction(UFunction* f);
 
 	lua_State* luaState_;
 	/** Total memory used by this lua state. */
@@ -92,9 +92,9 @@ private:
 #define LUA_CALLBACK(NAME) _lua_cb_##NAME
 
 	DECLARE_LUA_CALLBACK(handlePanic);
-	DECLARE_LUA_CALLBACK(invokeUFunction);
-	DECLARE_LUA_CALLBACK(uobjIndex);
-	DECLARE_LUA_CALLBACK(uobjNewIndex);
+	DECLARE_LUA_CALLBACK(uobjMTIndex);
+	DECLARE_LUA_CALLBACK(uobjMTNewIndex);
+	DECLARE_LUA_CALLBACK(uobjMTCall);
 
 	static TMap<lua_State*, FLuaEnv*> luaEnvMap_;
 };
