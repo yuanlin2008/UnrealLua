@@ -21,20 +21,20 @@ private:
 	void exportBPFLib(UClass* bflCls);
 	void exportBPFLFunc(const char* clsName, UFunction* f);
 
-	/** Invoke a UFunction from lua stack. */
-	int invokeUFunction();
-	/** Memory allocation function for lua vm. */
-	void* memAlloc(void* ptr, size_t osize, size_t nsize);
-
 	/************************************************************************/
 	/* Lua stack to cpp.                                                    */
 	/************************************************************************/
 
 	/** Get property value from lua stack.  */
 	void toPropertyValue(void* obj, UProperty* prop, int idx);
-
 	/** Get UObject from lua stack. */
-	UObject* toUObject(UClass* cls, int idx);
+	UObject* toUObject(int idx, UClass* cls = nullptr);
+	/** Get FString from lua stack. */
+	FString toString(int idx);
+	/** Get FText from lua stack. */
+	FText toText(int idx);
+	/** Get FName from lua stack. */
+	FName toName(int idx);
 
 
 	/************************************************************************/
@@ -43,19 +43,18 @@ private:
 
 	/** Push property value to lua stack. */
 	void pushPropertyValue(void* obj, UProperty* prop);
-
 	/** Push UObject to lua stack. */
 	void pushUObject(UObject* obj);
+	/** Push FString to lua stack. */
+	void pushString(const FString& str);
+	/** Push FText to lua stack. */
+	void pushText(const FText& txt);
+	/** Push FName to lua stack. */
+	void pushName(FName name);
+
 
 	/** Push a UFunction to lua stack. */
 	void pushUFunction(UFunction* f);
-
-	static FLuaEnv* getLuaEnv(lua_State* L) { return luaEnvMap_[L]; }
-	static void* luaAlloc(void* ud, void* ptr, size_t osize, size_t nsize);
-	static int luaPanic(lua_State* L);
-	static int luaUFunctionWrapper(lua_State* L);
-
-	static TMap<lua_State*, FLuaEnv*> luaEnvMap_;
 
 	lua_State* luaState_;
 	/** Total memory used by this lua state. */
@@ -76,4 +75,26 @@ private:
 	 * luaobj=>FLuaObjRefInfo 
 	 */
 	int luaObjRefInfoTable_;
+	/**
+	 * UObject proxy metatable.
+	 */
+	int uobjMetatable_;
+
+
+	static FLuaEnv* getLuaEnv(lua_State* L) { return luaEnvMap_[L]; }
+	/** Memory allocation function for lua vm. */
+	void* memAlloc(void* ptr, size_t osize, size_t nsize);
+	static void* _lua_cb_memAlloc(void* ud, void* ptr, size_t osize, size_t nsize) { return ((FLuaEnv*)ud)->memAlloc(ptr, osize, nsize); }
+
+#define DECLARE_LUA_CALLBACK(NAME) \
+	int NAME();\
+	static int _lua_cb_##NAME(lua_State* L) { return getLuaEnv(L)->NAME(); }
+#define LUA_CALLBACK(NAME) _lua_cb_##NAME
+
+	DECLARE_LUA_CALLBACK(handlePanic);
+	DECLARE_LUA_CALLBACK(invokeUFunction);
+	DECLARE_LUA_CALLBACK(uobjIndex);
+	DECLARE_LUA_CALLBACK(uobjNewIndex);
+
+	static TMap<lua_State*, FLuaEnv*> luaEnvMap_;
 };

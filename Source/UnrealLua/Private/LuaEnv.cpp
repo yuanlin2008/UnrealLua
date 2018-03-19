@@ -25,13 +25,15 @@ FLuaEnv::FLuaEnv():
 	memUsed_(0),
 	uobjTable_(LUA_NOREF),
 	luaObjTable_(LUA_NOREF),
-	luaObjRefInfoTable_(LUA_NOREF)
+	luaObjRefInfoTable_(LUA_NOREF),
+	uobjMetatable_(LUA_NOREF)
 {
 	luaEnvMap_.Add(luaState_, this);
-	luaState_ = lua_newstate(luaAlloc, this);
+	luaState_ = lua_newstate(LUA_CALLBACK(memAlloc), this);
 	check(luaState_);
+	lua_atpanic(luaState_, LUA_CALLBACK(handlePanic));
 
-	// todo: atpanic.
+	int top = lua_gettop(luaState_);
 
 	// Create UObject table.
 	lua_newtable(luaState_);
@@ -46,7 +48,17 @@ FLuaEnv::FLuaEnv():
 	lua_newtable(luaState_);
 	luaObjRefInfoTable_ = luaL_ref(luaState_, LUA_REGISTRYINDEX);
 
+	// Create UObject proxy metatable.
+	lua_newtable(luaState_);
+	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjIndex));
+	lua_setfield(luaState_, -2, "__index");
+	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjNewIndex));
+	lua_setfield(luaState_, -2, "__newindex");
+	uobjMetatable_ = luaL_ref(luaState_, LUA_REGISTRYINDEX);
+
 	exportBPFLibs();
+
+	lua_settop(luaState_, top);
 }
 
 FLuaEnv::~FLuaEnv()
@@ -98,18 +110,6 @@ void FLuaEnv::exportBPFLib(UClass* bflCls)
 		exportBPFLFunc(clsName, *it);
 }
 
-void* FLuaEnv::memAlloc(void* ptr, size_t osize, size_t nsize)
-{
-	memUsed_ = memUsed_ - osize + nsize;
-	if(nsize == 0)
-	{
-		FMemory::Free(ptr);
-		return nullptr;
-	}
-	else
-		return FMemory::Realloc(ptr, nsize);
-}
-
 void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx)
 {
 	if(auto p = Cast<UByteProperty>(prop))
@@ -143,20 +143,20 @@ void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx)
 	*/
 	else if(auto p = Cast<UObjectPropertyBase>(prop))
 	{
-		p->SetObjectPropertyValue_InContainer(obj, toUObject(p->PropertyClass, idx));
+		p->SetObjectPropertyValue_InContainer(obj, toUObject(idx, p->PropertyClass));
 	}
 	else if(auto p = Cast<UInterfaceProperty>(prop))
 	{
-		UObject* o = toUObject(UObject::StaticClass(), idx);
+		UObject* o = toUObject(idx);
 		if(auto ip = o->GetInterfaceAddress(p->InterfaceClass))
 			p->SetPropertyValue_InContainer(obj, FScriptInterface(o, ip));
 		else
 			p->SetPropertyValue_InContainer(obj, FScriptInterface());
 	}
 	else if(auto p = Cast<UNameProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, FName(UTF8_TO_TCHAR(lua_tostring(luaState_, idx))));
+		p->SetPropertyValue_InContainer(obj, toName(idx));
 	else if(auto p = Cast<UStrProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, UTF8_TO_TCHAR(lua_tostring(luaState_, idx)));
+		p->SetPropertyValue_InContainer(obj, toString(idx));
 	else if(auto p = Cast<UArrayProperty>(prop))
 	{
 		// todo.
@@ -182,27 +182,39 @@ void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx)
 		// todo.
 	}
 	else if(auto p = Cast<UTextProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, FText::FromString(UTF8_TO_TCHAR(lua_tostring(luaState_, idx))));
+		p->SetPropertyValue_InContainer(obj, toText(idx));
 	else if(auto p = Cast<UEnumProperty>(prop))
 	{
 		// todo.
 	}
 }
 
-UObject* FLuaEnv::toUObject(UClass* cls, int idx)
+UObject* FLuaEnv::toUObject(int idx, UClass* cls)
 {
 	FLuaUserdata* u = (FLuaUserdata*)lua_touserdata(luaState_, idx);
 	if(u == NULL || u->type != FLuaUserdata::Type::UObject)
 		return nullptr;
 	FUObjectProxy* p = (FUObjectProxy*)u;
 	UObject* o = p->obj;
-	if(o->IsA(cls))
+	// todo: warning?
+	if(cls == nullptr || o->IsA(cls))
 		return o;
 	else
-	{
-		// todo: warning?
 		return nullptr;
-	}
+}
+FString FLuaEnv::toString(int idx)
+{
+	return UTF8_TO_TCHAR(lua_tostring(luaState_, idx));
+}
+
+FText FLuaEnv::toText(int idx)
+{
+	return FText::FromString(UTF8_TO_TCHAR(lua_tostring(luaState_, idx)));
+}
+
+FName FLuaEnv::toName(int idx)
+{
+	return UTF8_TO_TCHAR(lua_tostring(luaState_, idx));
 }
 
 void FLuaEnv::pushPropertyValue(void* obj, UProperty* prop)
@@ -249,11 +261,27 @@ void FLuaEnv::pushUObject(UObject* obj)
 	}
 }
 
+void FLuaEnv::pushString(const FString& str)
+{
+	lua_pushstring(luaState_, TCHAR_TO_UTF8(*str));
+}
+
+void FLuaEnv::pushText(const FText& txt)
+{
+	pushString(txt.ToString());
+}
+
+void FLuaEnv::pushName(FName name)
+{
+	// todo: optimize?
+	pushString(name.ToString());
+}
+
 void FLuaEnv::pushUFunction(UFunction* f)
 {
 	// upvalue[1] = UFunction.
 	lua_pushlightuserdata(luaState_, f);
-	lua_pushcclosure(luaState_, luaUFunctionWrapper, 1);
+	lua_pushcclosure(luaState_, LUA_CALLBACK(invokeUFunction), 1);
 }
 
 void FLuaEnv::exportBPFLFunc(const char* clsName, UFunction* f)
@@ -263,6 +291,29 @@ void FLuaEnv::exportBPFLFunc(const char* clsName, UFunction* f)
 	lua_getglobal(luaState_, clsName);
 	pushUFunction(f);
 	lua_setfield(luaState_, -2, TCHAR_TO_UTF8(*(f->GetName())));
+}
+
+//////////////////////////////////////////////////////////////////////////
+/************************************************************************/
+/* Lua Callbacks.                                                       */
+/************************************************************************/
+
+void* FLuaEnv::memAlloc(void* ptr, size_t osize, size_t nsize)
+{
+	memUsed_ = memUsed_ - osize + nsize;
+	if(nsize == 0)
+	{
+		FMemory::Free(ptr);
+		return nullptr;
+	}
+	else
+		return FMemory::Realloc(ptr, nsize);
+}
+
+int FLuaEnv::handlePanic()
+{
+	ULUA_LOG(Error, TEXT("PANIC:%s"), UTF8_TO_TCHAR(lua_tostring(luaState_, -1)));
+	return 0;
 }
 
 int FLuaEnv::invokeUFunction()
@@ -308,21 +359,13 @@ int FLuaEnv::invokeUFunction()
 	return 0;
 }
 
-void* FLuaEnv::luaAlloc(void* ud, void* ptr, size_t osize, size_t nsize)
+int FLuaEnv::uobjIndex()
 {
-	FLuaEnv* luaEnv = (FLuaEnv*)ud;
-	return luaEnv->memAlloc(ptr, osize, nsize);
-}
-
-int FLuaEnv::luaPanic(lua_State* L)
-{
-	ULUA_LOG(Error, TEXT("PANIC:%s"), UTF8_TO_TCHAR(lua_tostring(L, -1)));
+	UObject* obj = toUObject(1);
 	return 0;
 }
 
-int FLuaEnv::luaUFunctionWrapper(lua_State* L)
+int FLuaEnv::uobjNewIndex()
 {
-	FLuaEnv* luaEnv = getLuaEnv(L);
-	return luaEnv->invokeUFunction();
+	return 0;
 }
-
