@@ -17,12 +17,11 @@ public:
 	virtual void AddReferencedObjects(FReferenceCollector& Collector) override;
 
 private:
-	void exportBPFLibs();
-	void exportBPFLib(UClass* bflCls);
-	void exportBPFLFunc(const char* clsName, UFunction* f);
+	void throwError(const char* fmt, ...);
 
 	int callUFunction(UFunction* func);
 	int callUClass(UClass* cls);
+	int callStruct(UScriptStruct* s);
 
 	/************************************************************************/
 	/* Lua stack to cpp.                                                    */

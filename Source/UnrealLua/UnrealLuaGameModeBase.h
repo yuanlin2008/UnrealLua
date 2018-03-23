@@ -16,5 +16,5 @@ class UNREALLUA_API AUnrealLuaGameModeBase : public AGameModeBase
 	
 public:
 	UFUNCTION()
-	UObject* testfunc(UObject*& o, int& i, const FVector v) { return nullptr; }
+	int testfunc(UObject*& o, int& i, const FVector v) { return 0; }
 };

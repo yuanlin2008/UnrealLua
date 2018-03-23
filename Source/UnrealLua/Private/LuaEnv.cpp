@@ -58,15 +58,15 @@ FLuaEnv::FLuaEnv():
 	lua_setfield(luaState_, -2, "__call");
 	uobjMetatable_ = luaL_ref(luaState_, LUA_REGISTRYINDEX);
 
-	exportBPFLibs();
-
 	lua_settop(luaState_, top);
+	ULUA_LOG(Log, TEXT("FLuaEnv created."));
 }
 
 FLuaEnv::~FLuaEnv()
 {
 	luaEnvMap_.Remove(luaState_);
 	lua_close(luaState_);
+	ULUA_LOG(Log, TEXT("FLuaEnv destroyed."));
 }
 
 void FLuaEnv::AddReferencedObjects(FReferenceCollector& Collector)
@@ -87,39 +87,13 @@ void FLuaEnv::AddReferencedObjects(FReferenceCollector& Collector)
 	Collector.AllowEliminatingReferences(true);
 }
 
-void FLuaEnv::exportBPFLibs()
+void FLuaEnv::throwError(const char* fmt, ...)
 {
-	for (TObjectIterator<UClass> it; it; ++it)
-	{
-		UClass* cls = *it;
-		if (!cls->IsChildOf(UBlueprintFunctionLibrary::StaticClass()))
-			continue;
-		exportBPFLib(cls);
-	}
-}
-
-void FLuaEnv::exportBPFLib(UClass* bflCls)
-{
-	ULUA_LOG(Log, TEXT("Export Blueprint Function Library for \"%s\""), *(bflCls->GetName()));
-
-	// Create a globle table for this library.
-	// LibName = {}
-	lua_newtable(luaState_);
-	const char* clsName = TCHAR_TO_UTF8(*bflCls->GetName());
-	lua_setglobal(luaState_, clsName);
-
-	for(TFieldIterator<UFunction> it(bflCls, EFieldIteratorFlags::ExcludeSuper); it; ++it)
-		exportBPFLFunc(clsName, *it);
-}
-
-void FLuaEnv::exportBPFLFunc(const char* clsName, UFunction* f)
-{
-	ULUA_LOG(Verbose, TEXT("Export Function \"%s\""), *(f->GetName()));
-	// ["libname"].func_name = function.
-	lua_getglobal(luaState_, clsName);
-	//pushUFunction(f);
-	// todo.
-	lua_setfield(luaState_, -2, TCHAR_TO_UTF8(*(f->GetName())));
+  va_list argp;
+  va_start(argp, fmt);
+  lua_pushvfstring(luaState_, fmt, argp);
+  va_end(argp);
+  lua_error(luaState_);
 }
 
 int FLuaEnv::callUFunction(UFunction* func)
@@ -145,24 +119,36 @@ int FLuaEnv::callUFunction(UFunction* func)
 	uint8* params = (uint8*)FMemory_Alloca(func->ParmsSize);
 	FParamBuffer b(func, params);
 
-	int paramIdx = 2;
+	bool isStaticFunc = func->HasAnyFunctionFlags(FUNC_Static);
+	int paramIdx = isStaticFunc?2:3;
+	UClass* cls = func->GetOwnerClass();
+	UObject* obj = isStaticFunc ? cls->GetDefaultObject() : toUObject(2, cls);
+	if(!obj)
+	{
+		throwError("Invalid self UObject");
+	}
+
+	// Get function parameter value from lua stack.
 	for(TFieldIterator<UProperty> it(func); it && (it->PropertyFlags & (CPF_Parm|CPF_ReturnParm)) == CPF_Parm; ++it)
 	{
-		// todo.
+		toPropertyValue(params, *it, paramIdx);
 	}
 
-	//func->HasAnyFunctionFlags(FUNC_HasOutParms);
-	if (func->FunctionFlags & FUNC_Static)
-	{
-	}
-	else
-	{
-	}
+	// Call UFunction.
+	obj->ProcessEvent(func, params);
 
+
+	// todo.
 	return 0;
 }
 
 int FLuaEnv::callUClass(UClass* cls)
+{
+	// todo.
+	return 0;
+}
+
+int FLuaEnv::callStruct(UScriptStruct* s)
 {
 	// todo.
 	return 0;
@@ -361,14 +347,11 @@ int FLuaEnv::handlePanic()
 int FLuaEnv::uobjMTIndex()
 {
 	UObject* obj = toUObject(1);
-	FName propName = toName(2);
+	FName name = toName(2);
+	UClass* cls = Cast<UClass>(obj);
 	// todo: optimize.
-	UField* field = FindField<UField>(obj->GetClass(), propName);
-	if (!field)
-	{
-		lua_pushnil(luaState_);
-	}
-	else if (auto prop = Cast<UProperty>(field))
+	UField* field = FindField<UField>(cls, name);
+	if (auto prop = Cast<UProperty>(field))
 	{
 		// Return property value.
 		pushPropertyValue(obj, prop);
@@ -378,22 +361,26 @@ int FLuaEnv::uobjMTIndex()
 		// Return UFunction.
 		pushUObject(func);
 	}
+	else
+	{
+		throwError("Invalid field name %s", TCHAR_TO_UTF8(*name.ToString()));
+	}
 	return 1;
 }
 
 int FLuaEnv::uobjMTNewIndex()
 {
 	UObject* obj = toUObject(1);
-	FName propName = toName(2);
+	FName name = toName(2);
 	// todo: optimize.
-	UProperty* prop = FindField<UProperty>(obj->GetClass(), propName);
+	UProperty* prop = FindField<UProperty>(obj->GetClass(), name);
 	if (prop)
 	{
 		toPropertyValue(obj, prop, 3);
 	}
 	else
 	{
-		// todo.
+		throwError("Invalid field name \"%s\"", TCHAR_TO_UTF8(*name.ToString()));
 	}
 	return 0;
 }
@@ -408,12 +395,17 @@ int FLuaEnv::uobjMTCall()
 	}
 	else if(auto cls = Cast<UClass>(obj))
 	{
-		// Call UClass
+		// New object.
 		return callUClass(cls);
+	}
+	else if(auto s = Cast<UScriptStruct>(obj))
+	{
+		// New struct.
+		return callStruct(s);
 	}
 	else
 	{
-		// todo.
+		throwError("Invalid object \"%s\"", TCHAR_TO_UTF8(*(obj->GetName())));
 	}
 	return 0;
 }
