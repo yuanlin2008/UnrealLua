@@ -28,15 +28,17 @@ private:
 	/************************************************************************/
 
 	/** Get property value from lua stack.  */
-	void toPropertyValue(void* obj, UProperty* prop, int idx);
+	void checkPropertyValue(void* obj, UProperty* prop, int idx);
 	/** Get UObject from lua stack. */
-	UObject* toUObject(int idx, UClass* cls = nullptr);
+	UObject* checkUObject(int idx, UClass* cls = nullptr);
+	/** Get UStruct from lua stack. */
+	void* checkUStruct(int idx, UScriptStruct* structType);
 	/** Get FString from lua stack. */
-	FString toString(int idx);
+	FString checkFString(int idx);
 	/** Get FText from lua stack. */
-	FText toText(int idx);
+	FText checkFText(int idx);
 	/** Get FName from lua stack. */
-	FName toName(int idx);
+	FName checkFName(int idx);
 
 
 	/************************************************************************/
@@ -47,12 +49,14 @@ private:
 	void pushPropertyValue(void* obj, UProperty* prop);
 	/** Push UObject to lua stack. */
 	void pushUObject(UObject* obj);
+	/** Push Struct to lua stack. */
+	void pushUStruct(void* structPtr, UScriptStruct* structType);
 	/** Push FString to lua stack. */
-	void pushString(const FString& str);
+	void pushFString(const FString& str);
 	/** Push FText to lua stack. */
-	void pushText(const FText& txt);
+	void pushFText(const FText& txt);
 	/** Push FName to lua stack. */
-	void pushName(FName name);
+	void pushFName(FName name);
 
 
 	lua_State* luaState_;
@@ -74,11 +78,11 @@ private:
 	 * luaobj=>FLuaObjRefInfo 
 	 */
 	int luaObjRefInfoTable_;
-	/**
-	 * UObject proxy metatable.
-	 */
-	int uobjMetatable_;
 
+	/**
+	 * Referenced structs.
+	 */
+	TSet<UScriptStruct*> structs_;
 
 	static FLuaEnv* getLuaEnv(lua_State* L) { return luaEnvMap_[L]; }
 	/** Memory allocation function for lua vm. */
@@ -94,6 +98,10 @@ private:
 	DECLARE_LUA_CALLBACK(uobjMTIndex);
 	DECLARE_LUA_CALLBACK(uobjMTNewIndex);
 	DECLARE_LUA_CALLBACK(uobjMTCall);
+
+	DECLARE_LUA_CALLBACK(ustructMTIndex);
+	DECLARE_LUA_CALLBACK(ustructMTNewIndex);
+	DECLARE_LUA_CALLBACK(ustructMTGC);
 
 	static TMap<lua_State*, FLuaEnv*> luaEnvMap_;
 };
