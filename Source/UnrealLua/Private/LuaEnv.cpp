@@ -206,25 +206,25 @@ int FLuaEnv::callStruct(UScriptStruct* s)
 void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx)
 {
 	if(auto p = Cast<UByteProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_tointeger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
 	else if(auto p = Cast<UInt8Property>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_tointeger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
 	else if(auto p = Cast<UInt16Property>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_tointeger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
 	else if(auto p = Cast<UIntProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_tointeger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
 	else if(auto p = Cast<UInt64Property>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_tointeger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
 	else if(auto p = Cast<UUInt16Property>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_tointeger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
 	else if(auto p = Cast<UUInt32Property>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_tointeger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
 	else if(auto p = Cast<UUInt64Property>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_tointeger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
 	else if(auto p = Cast<UFloatProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_tonumber(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, luaL_checknumber(luaState_, idx));
 	else if(auto p = Cast<UDoubleProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_tonumber(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, luaL_checknumber(luaState_, idx));
 	else if(auto p = Cast<UBoolProperty>(prop))
 		p->SetPropertyValue_InContainer(obj, lua_toboolean(luaState_, idx));
 	/**
