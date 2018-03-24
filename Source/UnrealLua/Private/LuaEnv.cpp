@@ -96,29 +96,58 @@ void FLuaEnv::throwError(const char* fmt, ...)
   lua_error(luaState_);
 }
 
+struct FUFunctionParams
+{
+	FUFunctionParams(UFunction* f, void* b):
+		buffer(b),
+		parmNum(0), 
+		retParm(nullptr),
+		outParmNum(0)
+	{
+		for(TFieldIterator<UProperty> it(f); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
+		{
+			UProperty* parm = *it;
+			parm->InitializeValue_InContainer(buffer);
+			if(parm->HasAnyPropertyFlags(CPF_ReturnParm))
+			{
+				// return parameter.
+				retParm = parm;
+			}
+			else
+			{
+				parms[parmNum] = parm;
+				parmNum++;
+				check(parmNum <= ParmMax);
+				if((parm->PropertyFlags & (CPF_ConstParm | CPF_OutParm)) == CPF_OutParm)
+				{
+					// out parameter.
+					outParms[outParmNum] = parm;
+					outParmNum++;
+				}
+			}
+		}
+	}
+
+	~FUFunctionParams()
+	{
+		for(int i = 0; i < parmNum; i++)
+			parms[i]->DestroyValue_InContainer(buffer);
+		if(retParm)
+			retParm->DestroyValue_InContainer(buffer);
+	}
+
+	void*		buffer;
+	enum {ParmMax = 16};
+	UProperty*	parms[ParmMax];
+	int			parmNum;
+	UProperty*	retParm;
+	UProperty*	outParms[ParmMax];
+	int			outParmNum;
+};
+
 int FLuaEnv::callUFunction(UFunction* func)
 {
-	/** Memory buffer for function parameters. */
-	struct FParamBuffer
-	{
-		FParamBuffer(UFunction* f, uint8* b):func_(f),buffer_(b)
-		{
-			for(TFieldIterator<UProperty> it(func_); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
-				(*it)->InitializeValue_InContainer(buffer_);
-		}
-		~FParamBuffer()
-		{
-			for(TFieldIterator<UProperty> it(func_); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
-				(*it)->DestroyValue_InContainer(buffer_);
-		}
-		UFunction* func_;
-		uint8* buffer_;
-	};
-
-	// Create param buffer from current stack.
-	uint8* params = (uint8*)FMemory_Alloca(func->ParmsSize);
-	FParamBuffer b(func, params);
-
+	// Get Self Object.
 	bool isStaticFunc = func->HasAnyFunctionFlags(FUNC_Static);
 	int paramIdx = isStaticFunc?2:3;
 	UClass* cls = func->GetOwnerClass();
@@ -128,18 +157,38 @@ int FLuaEnv::callUFunction(UFunction* func)
 		throwError("Invalid self UObject");
 	}
 
+	// Create param buffer from current stack.
+	uint8* paramBuffer = (uint8*)FMemory_Alloca(func->ParmsSize);
+
+	// Initialize param buffer.
+	FUFunctionParams params(func, paramBuffer);
+
 	// Get function parameter value from lua stack.
-	for(TFieldIterator<UProperty> it(func); it && (it->PropertyFlags & (CPF_Parm|CPF_ReturnParm)) == CPF_Parm; ++it)
+	for(int i = 0; i < params.parmNum; i++)
 	{
-		toPropertyValue(params, *it, paramIdx);
+		toPropertyValue(paramBuffer, params.parms[i], paramIdx);
+		paramIdx++;
 	}
 
 	// Call UFunction.
-	obj->ProcessEvent(func, params);
+	obj->ProcessEvent(func, paramBuffer);
 
+	int retNum = 0;
+	// Return value to lua stack.
+	if(params.retParm)
+	{
+		pushPropertyValue(paramBuffer, params.retParm);
+		retNum++;
+	}
 
-	// todo.
-	return 0;
+	// Return out value to lua stack.
+	for(int i = 0; i < params.outParmNum; i++)
+	{
+		pushPropertyValue(paramBuffer, params.outParms[i]);
+		retNum++;
+	}
+
+	return retNum;
 }
 
 int FLuaEnv::callUClass(UClass* cls)
