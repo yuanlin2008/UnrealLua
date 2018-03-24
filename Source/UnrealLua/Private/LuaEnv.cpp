@@ -49,7 +49,7 @@ FLuaEnv::FLuaEnv():
 	luaObjRefInfoTable_ = luaL_ref(luaState_, LUA_REGISTRYINDEX);
 
 	// Create UObject proxy metatable.
-	lua_newtable(luaState_);
+	lua_newtable(luaState_);12124e23dcvds2
 	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjMTIndex));
 	lua_setfield(luaState_, -2, "__index");
 	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjMTNewIndex));
@@ -134,6 +134,7 @@ struct FUFunctionParams
 			parms[i]->DestroyValue_InContainer(buffer);
 		if(retParm)
 			retParm->DestroyValue_InContainer(buffer);
+		ULUA_LOG(Verbose, TEXT("FUFunctionParams destructed."));
 	}
 
 	void*		buffer;
