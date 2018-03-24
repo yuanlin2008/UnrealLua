@@ -475,8 +475,8 @@ int FLuaEnv::handlePanic()
 
 int FLuaEnv::uobjMTIndex()
 {
-	// todo: no need to check
-	UObject* obj = checkUObject(1);
+	FUObjectProxy* p = (FUObjectProxy*)lua_touserdata(luaState_, 1);
+	UObject* obj = p->ptr;
 	FName name = checkFName(2);
 	UClass* cls = Cast<UClass>(obj);
 	// todo: optimize.
@@ -500,8 +500,8 @@ int FLuaEnv::uobjMTIndex()
 
 int FLuaEnv::uobjMTNewIndex()
 {
-	// todo: no need to check
-	UObject* obj = checkUObject(1);
+	FUObjectProxy* p = (FUObjectProxy*)lua_touserdata(luaState_, 1);
+	UObject* obj = p->ptr;
 	FName name = checkFName(2);
 	// todo: optimize.
 	UProperty* prop = FindField<UProperty>(obj->GetClass(), name);
@@ -518,8 +518,8 @@ int FLuaEnv::uobjMTNewIndex()
 
 int FLuaEnv::uobjMTCall()
 {
-	// todo: no need to check
-	UObject* obj = checkUObject(1);
+	FUObjectProxy* p = (FUObjectProxy*)lua_touserdata(luaState_, 1);
+	UObject* obj = p->ptr;
 	if (auto func = Cast<UFunction>(obj))
 	{
 		// Call UFunction.
@@ -544,14 +544,38 @@ int FLuaEnv::uobjMTCall()
 
 int FLuaEnv::ustructMTIndex()
 {
-	// todo.
+	FUStructProxy* p = (FUStructProxy*)lua_touserdata(luaState_, 1);
+	FName name = checkFName(2);
+	// todo: optimize.
+	UProperty* prop = FindField<UProperty>(p->type, name);
+	if (prop)
+	{
+		// Return property value.
+		pushPropertyValue(p->ptr, prop);
+	}
+	else
+	{
+		throwError("Invalid field name %s", TCHAR_TO_UTF8(*name.ToString()));
+	}
 	return 1;
 }
 
 int FLuaEnv::ustructMTNewIndex()
 {
-	// todo.
-	return 1;
+	FUStructProxy* p = (FUStructProxy*)lua_touserdata(luaState_, 1);
+	FName name = checkFName(2);
+	// todo: optimize.
+	UProperty* prop = FindField<UProperty>(p->type, name);
+	if (prop)
+	{
+		// Return property value.
+		checkPropertyValue(p->ptr, prop, 3);
+	}
+	else
+	{
+		throwError("Invalid field name %s", TCHAR_TO_UTF8(*name.ToString()));
+	}
+	return 0;
 }
 
 int FLuaEnv::ustructMTGC()
