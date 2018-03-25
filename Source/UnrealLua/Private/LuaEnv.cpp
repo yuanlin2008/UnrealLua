@@ -319,7 +319,8 @@ void FLuaEnv::checkPropertyValue(void* obj, UProperty* prop, int idx)
 	}
 	else if(auto p = Cast<UStructProperty>(prop))
 	{
-		// todo.
+		void* src = checkUStruct(idx, p->Struct);
+		p->CopyCompleteValue(p->ContainerPtrToValuePtr<void>(obj), src);
 	}
 	else if(auto p = Cast<UDelegateProperty>(prop))
 	{
@@ -333,7 +334,8 @@ void FLuaEnv::checkPropertyValue(void* obj, UProperty* prop, int idx)
 		p->SetPropertyValue_InContainer(obj, checkFText(idx));
 	else if(auto p = Cast<UEnumProperty>(prop))
 	{
-		// todo.
+		uint8* propData = p->ContainerPtrToValuePtr<uint8>(obj);
+		p->GetUnderlyingProperty()->SetIntPropertyValue(propData, luaL_checkinteger(luaState_, idx));
 	}
 }
 
@@ -378,46 +380,147 @@ FName FLuaEnv::checkFName(int idx)
 
 void FLuaEnv::pushPropertyValue(void* obj, UProperty* prop)
 {
-	// todo.
+	if(auto p = Cast<UByteProperty>(prop))
+		lua_pushinteger(luaState_, p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UInt8Property>(prop))
+		lua_pushinteger(luaState_, p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UInt16Property>(prop))
+		lua_pushinteger(luaState_, p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UIntProperty>(prop))
+		lua_pushinteger(luaState_, p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UInt64Property>(prop))
+		lua_pushinteger(luaState_, p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UUInt16Property>(prop))
+		lua_pushinteger(luaState_, p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UUInt32Property>(prop))
+		lua_pushinteger(luaState_, p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UUInt64Property>(prop))
+		lua_pushinteger(luaState_, p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UFloatProperty>(prop))
+		lua_pushnumber(luaState_, p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UDoubleProperty>(prop))
+		lua_pushnumber(luaState_, p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UBoolProperty>(prop))
+		lua_pushboolean(luaState_, p->GetPropertyValue_InContainer(obj)?1:0);
+	/**
+	UObjectProperty 
+	UWeakObjectProperty 
+	ULazyObjectProperty 
+	USoftObject 
+	UClassProperty
+	*/
+	else if(auto p = Cast<UObjectPropertyBase>(prop))
+	{
+		pushUObject(p->GetObjectPropertyValue_InContainer(obj));
+	}
+	else if(auto p = Cast<UInterfaceProperty>(prop))
+	{
+		pushUObject(p->GetPropertyValue_InContainer(obj).GetObject());
+	}
+	else if(auto p = Cast<UNameProperty>(prop))
+		pushFName(p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UStrProperty>(prop))
+		pushFString(p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UArrayProperty>(prop))
+	{
+		FScriptArrayHelper_InContainer cppArr(p, obj);
+		int cppArrLen = cppArr.Num();
+		lua_createtable(luaState_, cppArrLen, 0);
+		for(int i = 0; i < cppArrLen; i++)
+		{
+			pushPropertyValue(cppArr.GetRawPtr(i), p->Inner);
+			lua_rawseti(luaState_, -2, i+1);
+		}
+	}
+	else if(auto p = Cast<UMapProperty>(prop))
+	{
+		FScriptMapHelper_InContainer cppMap(p, obj);
+		int cppMapSize = cppMap.Num();
+		lua_createtable(luaState_, 0, cppMapSize);
+		for(int i = 0; i < cppMapSize; i++)
+		{
+			uint8* pairPtr = cppMap.GetPairPtr(i);
+			pushPropertyValue(pairPtr + p->MapLayout.KeyOffset, p->KeyProp);
+			pushPropertyValue(pairPtr, p->ValueProp);
+			lua_rawset(luaState_, -3);
+		}
+	}
+	else if(auto p = Cast<USetProperty>(prop))
+	{
+		FScriptSetHelper_InContainer cppSet(p, obj);
+		int cppSetSize = cppSet.Num();
+		lua_createtable(luaState_, 0, cppSetSize);
+		for(int i = 0; i < cppSetSize; i++)
+		{
+			uint8* elemPtr = cppSet.GetElementPtr(i);
+			pushPropertyValue(elemPtr, p->ElementProp);
+			lua_pushboolean(luaState_, 1);
+			lua_rawset(luaState_, -3);
+		}
+	}
+	else if(auto p = Cast<UStructProperty>(prop))
+	{
+		pushUStruct(p->ContainerPtrToValuePtr<void>(obj), p->Struct);
+	}
+	else if(auto p = Cast<UDelegateProperty>(prop))
+	{
+		// todo.
+	}
+	else if(auto p = Cast<UMulticastDelegateProperty>(prop))
+	{
+		// todo.
+	}
+	else if(auto p = Cast<UTextProperty>(prop))
+		pushFText(p->GetPropertyValue_InContainer(obj));
+	else if(auto p = Cast<UEnumProperty>(prop))
+	{
+		uint8* propData = p->ContainerPtrToValuePtr<uint8>(obj);
+		lua_pushinteger(luaState_, p->GetUnderlyingProperty()->GetSignedIntPropertyValue(propData));
+	}
 }
 
 void FLuaEnv::pushUObject(UObject* obj)
 {
-	// Find in uobjTable first.
-	lua_rawgeti(luaState_, LUA_REGISTRYINDEX, uobjTable_);
-	lua_pushlightuserdata(luaState_, obj);
-	lua_rawget(luaState_, -2);
-	//=========================================
-	//=>uobjTable_
-	//=>FUObjectProxy or nil
-	//=========================================
-	if(lua_isnil(luaState_, -1))
+	if(obj)
 	{
-		lua_pop(luaState_, 1);
+		// Find in uobjTable first.
+		lua_rawgeti(luaState_, LUA_REGISTRYINDEX, uobjTable_);
 		lua_pushlightuserdata(luaState_, obj);
-		lua_pushvalue(luaState_, -1);
-		FUObjectProxy* p = (FUObjectProxy*)lua_newuserdata(luaState_, sizeof(FUObjectProxy));
-		p->ptr = obj;
+		lua_rawget(luaState_, -2);
 		//=========================================
 		//=>uobjTable_
-		//=>uobjptr
-		//=>uobjptr
-		//=>FUObjectProxy
+		//=>FUObjectProxy or nil
 		//=========================================
-		lua_rawset(luaState_, -4);
-		lua_rawget(luaState_, -2);
-		lua_replace(luaState_, -2);
-		//=========================================
-		//=>FUObjectProxy
-		//=========================================
+		if(lua_isnil(luaState_, -1))
+		{
+			lua_pop(luaState_, 1);
+			lua_pushlightuserdata(luaState_, obj);
+			lua_pushvalue(luaState_, -1);
+			FUObjectProxy* p = (FUObjectProxy*)lua_newuserdata(luaState_, sizeof(FUObjectProxy));
+			p->ptr = obj;
+			//=========================================
+			//=>uobjTable_
+			//=>uobjptr
+			//=>uobjptr
+			//=>FUObjectProxy
+			//=========================================
+			lua_rawset(luaState_, -4);
+			lua_rawget(luaState_, -2);
+			lua_replace(luaState_, -2);
+			//=========================================
+			//=>FUObjectProxy
+			//=========================================
 
-		// set metatable.
-		luaL_setmetatable(luaState_, "UObjectMT");
+			// set metatable.
+			luaL_setmetatable(luaState_, "UObjectMT");
+		}
+		else
+		{
+			lua_replace(luaState_, -2);
+		}
 	}
 	else
-	{
-		lua_replace(luaState_, -2);
-	}
+		lua_pushnil(luaState_);
 }
 
 void FLuaEnv::pushUStruct(void* structPtr, UScriptStruct* structType)
