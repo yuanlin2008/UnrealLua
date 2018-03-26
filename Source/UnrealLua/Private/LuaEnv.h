@@ -2,8 +2,7 @@
 
 #include "UnrealLua.h"
 #include "GCObject.h"
-
-struct lua_State;
+#include "lua.hpp"
 
 class FLuaEnv : public FGCObject
 {
@@ -16,48 +15,45 @@ public:
 	/** FGCObject Interface */
 	virtual void AddReferencedObjects(FReferenceCollector& Collector) override;
 
+	//////////////////////////////////////////////////////////////////////////
+	// Lua stack to cpp.
+	//////////////////////////////////////////////////////////////////////////
+	bool		isNil(int idx)		{ return lua_isnil(luaState_, idx); }
+	lua_Number	toNumber(int idx)	{ return lua_tonumber(luaState_, idx); }
+	lua_Integer	toInteger(int idx)	{ return lua_tointeger(luaState_, idx); }
+	bool		toBoolean(int idx)	{ return lua_toboolean(luaState_, idx); }
+	UObject*	toUObject(int idx, UClass* cls, bool check);
+	void*		toUStruct(int idx, UScriptStruct* structType, bool check);
+	FString		toFString(int idx, bool check);
+	FText		toFText(int idx, bool check);
+	FName		toFName(int idx, bool check);
+
+	void		toPropertyValue(void* obj, UProperty* prop, int idx, bool check);
+
+
+	//////////////////////////////////////////////////////////////////////////
+	// Cpp to lua stack.
+	//////////////////////////////////////////////////////////////////////////
+	void pushNil()					{ lua_pushnil(luaState_); }
+	void pushNumber(lua_Number n)	{ lua_pushnumber(luaState_, n); }
+	void pushInteger(lua_Integer n)	{ lua_pushinteger(luaState_, n); }
+	void pushBoolean(bool b)		{ lua_pushboolean(luaState_, b?1:0); }
+	void pushUObject(UObject* obj);
+	void pushUStruct(void* structPtr, UScriptStruct* structType);
+	void pushString(const TCHAR* s);
+	void pushFString(const FString& str);
+	void pushFText(const FText& txt);
+	void pushFName(FName name);
+
+	void pushPropertyValue(void* obj, UProperty* prop);
+
+
 private:
 	void throwError(const char* fmt, ...);
 
 	int callUFunction(UFunction* func);
 	int callUClass(UClass* cls);
 	int callStruct(UScriptStruct* s);
-
-	/************************************************************************/
-	/* Lua stack to cpp.                                                    */
-	/************************************************************************/
-
-	/** Get property value from lua stack.  */
-	void checkPropertyValue(void* obj, UProperty* prop, int idx);
-	/** Get UObject from lua stack. */
-	UObject* checkUObject(int idx, UClass* cls = nullptr);
-	/** Get UStruct from lua stack. */
-	void* checkUStruct(int idx, UScriptStruct* structType);
-	/** Get FString from lua stack. */
-	FString checkFString(int idx);
-	/** Get FText from lua stack. */
-	FText checkFText(int idx);
-	/** Get FName from lua stack. */
-	FName checkFName(int idx);
-
-
-	/************************************************************************/
-	/* Cpp to lua stack.                                                    */
-	/************************************************************************/
-
-	/** Push property value to lua stack. */
-	void pushPropertyValue(void* obj, UProperty* prop);
-	/** Push UObject to lua stack. */
-	void pushUObject(UObject* obj);
-	/** Push Struct to lua stack. */
-	void pushUStruct(void* structPtr, UScriptStruct* structType);
-	/** Push FString to lua stack. */
-	void pushFString(const FString& str);
-	/** Push FText to lua stack. */
-	void pushFText(const FText& txt);
-	/** Push FName to lua stack. */
-	void pushFName(FName name);
-
 
 	lua_State* luaState_;
 	/** Total memory used by this lua state. */

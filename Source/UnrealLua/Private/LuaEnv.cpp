@@ -1,7 +1,5 @@
 #include "LuaEnv.h"
-#include "UObjectIterator.h"
-#include "Kismet/BlueprintFunctionLibrary.h"
-#include "lua.hpp"
+#include "UnrealType.h"
 
 TMap<lua_State*, FLuaEnv*> FLuaEnv::luaEnvMap_;
 
@@ -97,147 +95,70 @@ void FLuaEnv::AddReferencedObjects(FReferenceCollector& Collector)
 	Collector.AllowEliminatingReferences(true);
 }
 
-void FLuaEnv::throwError(const char* fmt, ...)
+UObject* FLuaEnv::toUObject(int idx, UClass* cls, bool check)
 {
-  va_list argp;
-  va_start(argp, fmt);
-  lua_pushvfstring(luaState_, fmt, argp);
-  va_end(argp);
-  lua_error(luaState_);
+	if(lua_isnil(luaState_, idx))
+		return nullptr;
+	FUObjectProxy* p = (FUObjectProxy*)(check?luaL_checkudata(luaState_, idx, "UObjectMT"):luaL_testudata(luaState_, idx, "UObjectMT"));
+	if(!p)
+		return nullptr;
+	UObject* o = p->ptr;
+	if(cls == nullptr || o->IsA(cls))
+		return o;
+	if(check)
+		throwError("Invalid UObject type, \"%s\" needed.", UTF8_TO_TCHAR(*(cls->GetName())));
+	return nullptr;
 }
 
-struct FFuncParamStruct
+void* FLuaEnv::toUStruct(int idx, UScriptStruct* structType, bool check)
 {
-	FFuncParamStruct(UFunction* f, void* b):
-		buffer(b),
-		parmNum(0), 
-		retParm(nullptr),
-		outParmNum(0)
-	{
-		for(TFieldIterator<UProperty> it(f); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
-		{
-			UProperty* parm = *it;
-			parm->InitializeValue_InContainer(buffer);
-			if(parm->HasAnyPropertyFlags(CPF_ReturnParm))
-			{
-				// return parameter.
-				retParm = parm;
-			}
-			else
-			{
-				parms[parmNum] = parm;
-				parmNum++;
-				check(parmNum <= ParmMax);
-				if((parm->PropertyFlags & (CPF_ConstParm | CPF_OutParm)) == CPF_OutParm)
-				{
-					// out parameter.
-					outParms[outParmNum] = parm;
-					outParmNum++;
-				}
-			}
-		}
-	}
-
-	~FFuncParamStruct()
-	{
-		for(int i = 0; i < parmNum; i++)
-			parms[i]->DestroyValue_InContainer(buffer);
-		if(retParm)
-			retParm->DestroyValue_InContainer(buffer);
-		ULUA_LOG(Verbose, TEXT("FFuncParamStruct destructed."));
-	}
-
-	void*		buffer;
-	enum {ParmMax = 16};
-	UProperty*	parms[ParmMax];
-	int			parmNum;
-	UProperty*	retParm;
-	UProperty*	outParms[ParmMax];
-	int			outParmNum;
-};
-
-int FLuaEnv::callUFunction(UFunction* func)
-{
-	// Get Self Object.
-	bool isStaticFunc = func->HasAnyFunctionFlags(FUNC_Static);
-	int paramIdx = isStaticFunc?2:3;
-	UClass* cls = func->GetOwnerClass();
-	UObject* obj = isStaticFunc ? cls->GetDefaultObject() : checkUObject(2, cls);
-	if(!obj)
-	{
-		throwError("Invalid self UObject");
-	}
-
-	// Create param buffer from current stack.
-	uint8* paramBuffer = (uint8*)FMemory_Alloca(func->ParmsSize);
-
-	// Initialize param buffer.
-	FFuncParamStruct params(func, paramBuffer);
-
-	// Get function parameter value from lua stack.
-	for(int i = 0; i < params.parmNum; i++)
-	{
-		checkPropertyValue(paramBuffer, params.parms[i], paramIdx);
-		paramIdx++;
-	}
-
-	// Call UFunction.
-	obj->ProcessEvent(func, paramBuffer);
-
-	int retNum = 0;
-	// Return value to lua stack.
-	if(params.retParm)
-	{
-		pushPropertyValue(paramBuffer, params.retParm);
-		retNum++;
-	}
-
-	// Return out value to lua stack.
-	for(int i = 0; i < params.outParmNum; i++)
-	{
-		pushPropertyValue(paramBuffer, params.outParms[i]);
-		retNum++;
-	}
-
-	return retNum;
+	FUStructProxy* p = (FUStructProxy*)(check?luaL_checkudata(luaState_, idx, "UStructMT"):luaL_testudata(luaState_, idx, "UStructMT"));
+	if(p && p->type == structType)
+		return p->ptr;
+	if(check)
+		throwError("Invalid UStruct type, \"%s\" needed.", UTF8_TO_TCHAR(*(p->type->GetName())));
+	return nullptr;
 }
 
-int FLuaEnv::callUClass(UClass* cls)
+FString	FLuaEnv::toFString(int idx, bool check)
 {
-	// todo.
-	return 0;
+	return UTF8_TO_TCHAR(check?luaL_checkstring(luaState_, idx):lua_tostring(luaState_, idx));
 }
 
-int FLuaEnv::callStruct(UScriptStruct* s)
+FText FLuaEnv::toFText(int idx, bool check)
 {
-	// todo.
-	return 0;
+	return FText::FromString(UTF8_TO_TCHAR(check?luaL_checkstring(luaState_, idx):lua_tostring(luaState_, idx)));
 }
 
-void FLuaEnv::checkPropertyValue(void* obj, UProperty* prop, int idx)
+FName FLuaEnv::toFName(int idx, bool check)
+{
+	return UTF8_TO_TCHAR(check?luaL_checkstring(luaState_, idx):lua_tostring(luaState_, idx));
+}
+
+void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx, bool check)
 {
 	if(auto p = Cast<UByteProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toInteger(idx));
 	else if(auto p = Cast<UInt8Property>(prop))
-		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toInteger(idx));
 	else if(auto p = Cast<UInt16Property>(prop))
-		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toInteger(idx));
 	else if(auto p = Cast<UIntProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toInteger(idx));
 	else if(auto p = Cast<UInt64Property>(prop))
-		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toInteger(idx));
 	else if(auto p = Cast<UUInt16Property>(prop))
-		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toInteger(idx));
 	else if(auto p = Cast<UUInt32Property>(prop))
-		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toInteger(idx));
 	else if(auto p = Cast<UUInt64Property>(prop))
-		p->SetPropertyValue_InContainer(obj, luaL_checkinteger(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toInteger(idx));
 	else if(auto p = Cast<UFloatProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, luaL_checknumber(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toNumber(idx));
 	else if(auto p = Cast<UDoubleProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, luaL_checknumber(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toNumber(idx));
 	else if(auto p = Cast<UBoolProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, lua_toboolean(luaState_, idx));
+		p->SetPropertyValue_InContainer(obj, toBoolean(idx));
 	/**
 	UObjectProperty 
 	UWeakObjectProperty 
@@ -247,11 +168,11 @@ void FLuaEnv::checkPropertyValue(void* obj, UProperty* prop, int idx)
 	*/
 	else if(auto p = Cast<UObjectPropertyBase>(prop))
 	{
-		p->SetObjectPropertyValue_InContainer(obj, checkUObject(idx, p->PropertyClass));
+		p->SetObjectPropertyValue_InContainer(obj, toUObject(idx, p->PropertyClass, check));
 	}
 	else if(auto p = Cast<UInterfaceProperty>(prop))
 	{
-		UObject* o = checkUObject(idx);
+		UObject* o = toUObject(idx, nullptr, check);
 		void* iaddr = o?o->GetInterfaceAddress(p->InterfaceClass):nullptr;
 		if(iaddr)
 			p->SetPropertyValue_InContainer(obj, FScriptInterface(o, iaddr));
@@ -259,12 +180,18 @@ void FLuaEnv::checkPropertyValue(void* obj, UProperty* prop, int idx)
 			p->SetPropertyValue_InContainer(obj, FScriptInterface());
 	}
 	else if(auto p = Cast<UNameProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, checkFName(idx));
+		p->SetPropertyValue_InContainer(obj, toFName(idx, check));
 	else if(auto p = Cast<UStrProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, checkFString(idx));
+		p->SetPropertyValue_InContainer(obj, toFString(idx, check));
 	else if(auto p = Cast<UArrayProperty>(prop))
 	{
-		luaL_checktype(luaState_, idx, LUA_TTABLE);
+		if(check)
+			luaL_checktype(luaState_, idx, LUA_TTABLE);
+		else
+		{
+			if(!lua_istable(luaState_, idx))
+				return;
+		}
 		int luaArrLen = lua_rawlen(luaState_, idx);
 
 		FScriptArrayHelper_InContainer cppArr(p, obj);
@@ -278,13 +205,19 @@ void FLuaEnv::checkPropertyValue(void* obj, UProperty* prop, int idx)
 		for(int i = 0; i < luaArrLen; i++)
 		{
 			lua_rawgeti(luaState_, idx, i+1);
-			checkPropertyValue(cppArr.GetRawPtr(i), p->Inner, lua_gettop(luaState_));
+			toPropertyValue(cppArr.GetRawPtr(i), p->Inner, lua_gettop(luaState_), check);
 			lua_pop(luaState_, 1);
 		}
 	}
 	else if(auto p = Cast<UMapProperty>(prop))
 	{
-		luaL_checktype(luaState_, idx, LUA_TTABLE);
+		if(check)
+			luaL_checktype(luaState_, idx, LUA_TTABLE);
+		else
+		{
+			if(!lua_istable(luaState_, idx))
+				return;
+		}
 
 		FScriptMapHelper_InContainer cppMap(p, obj);
 		cppMap.EmptyValues();
@@ -294,15 +227,21 @@ void FLuaEnv::checkPropertyValue(void* obj, UProperty* prop, int idx)
 		{
 			int elementId = cppMap.AddDefaultValue_Invalid_NeedsRehash();
 			uint8* pairPtr = cppMap.GetPairPtr(elementId);
-			checkPropertyValue(pairPtr + p->MapLayout.KeyOffset, p->KeyProp, lua_gettop(luaState_) - 1);
-			checkPropertyValue(pairPtr, p->ValueProp, lua_gettop(luaState_));
+			toPropertyValue(pairPtr + p->MapLayout.KeyOffset, p->KeyProp, lua_gettop(luaState_) - 1, check);
+			toPropertyValue(pairPtr, p->ValueProp, lua_gettop(luaState_), check);
 			lua_pop(luaState_, 1);
 		}
 		cppMap.Rehash();
 	}
 	else if(auto p = Cast<USetProperty>(prop))
 	{
-		luaL_checktype(luaState_, idx, LUA_TTABLE);
+		if(check)
+			luaL_checktype(luaState_, idx, LUA_TTABLE);
+		else
+		{
+			if(!lua_istable(luaState_, idx))
+				return;
+		}
 
 		FScriptSetHelper_InContainer cppSet(p, obj);
 		cppSet.EmptyElements();
@@ -312,15 +251,16 @@ void FLuaEnv::checkPropertyValue(void* obj, UProperty* prop, int idx)
 		{
 			int elementId = cppSet.AddDefaultValue_Invalid_NeedsRehash();
 			uint8* elementPtr = cppSet.GetElementPtr(elementId);
-			checkPropertyValue(elementPtr, p->ElementProp, lua_gettop(luaState_) - 1);
+			toPropertyValue(elementPtr, p->ElementProp, lua_gettop(luaState_) - 1, check);
 			lua_pop(luaState_, 1);
 		}
 		cppSet.Rehash();
 	}
 	else if(auto p = Cast<UStructProperty>(prop))
 	{
-		void* src = checkUStruct(idx, p->Struct);
-		p->CopyCompleteValue(p->ContainerPtrToValuePtr<void>(obj), src);
+		void* src = toUStruct(idx, p->Struct, check);
+		if(src)
+			p->CopyCompleteValue(p->ContainerPtrToValuePtr<void>(obj), src);
 	}
 	else if(auto p = Cast<UDelegateProperty>(prop))
 	{
@@ -331,51 +271,91 @@ void FLuaEnv::checkPropertyValue(void* obj, UProperty* prop, int idx)
 		// todo.
 	}
 	else if(auto p = Cast<UTextProperty>(prop))
-		p->SetPropertyValue_InContainer(obj, checkFText(idx));
+		p->SetPropertyValue_InContainer(obj, toFText(idx, check));
 	else if(auto p = Cast<UEnumProperty>(prop))
 	{
 		uint8* propData = p->ContainerPtrToValuePtr<uint8>(obj);
-		p->GetUnderlyingProperty()->SetIntPropertyValue(propData, luaL_checkinteger(luaState_, idx));
+		p->GetUnderlyingProperty()->SetIntPropertyValue(propData, toInteger(idx));
 	}
 }
 
-UObject* FLuaEnv::checkUObject(int idx, UClass* cls)
+void FLuaEnv::pushUObject(UObject* obj)
 {
-	if(lua_isnil(luaState_, idx))
-		return nullptr;
-	FUObjectProxy* p = (FUObjectProxy*)luaL_checkudata(luaState_, idx, "UObjectMT");
-	UObject* o = p->ptr;
-	if(cls == nullptr || o->IsA(cls))
-		return o;
-	else
+	if(obj)
 	{
-		throwError("Invalid UObject type, \"%s\" needed.", UTF8_TO_TCHAR(*(cls->GetName())));
+		// Find in uobjTable first.
+		lua_rawgeti(luaState_, LUA_REGISTRYINDEX, uobjTable_);
+		lua_pushlightuserdata(luaState_, obj);
+		lua_rawget(luaState_, -2);
+		//=========================================
+		//=>uobjTable_
+		//=>FUObjectProxy or nil
+		//=========================================
+		if(lua_isnil(luaState_, -1))
+		{
+			lua_pop(luaState_, 1);
+			lua_pushlightuserdata(luaState_, obj);
+			lua_pushvalue(luaState_, -1);
+			FUObjectProxy* p = (FUObjectProxy*)lua_newuserdata(luaState_, sizeof(FUObjectProxy));
+			p->ptr = obj;
+			//=========================================
+			//=>uobjTable_
+			//=>uobjptr
+			//=>uobjptr
+			//=>FUObjectProxy
+			//=========================================
+			lua_rawset(luaState_, -4);
+			lua_rawget(luaState_, -2);
+			lua_replace(luaState_, -2);
+			//=========================================
+			//=>FUObjectProxy
+			//=========================================
+
+			// set metatable.
+			luaL_setmetatable(luaState_, "UObjectMT");
+		}
+		else
+		{
+			lua_replace(luaState_, -2);
+		}
 	}
-	return nullptr;
+	else
+		lua_pushnil(luaState_);
 }
 
-void* FLuaEnv::checkUStruct(int idx, UScriptStruct* structType)
+void FLuaEnv::pushUStruct(void* structPtr, UScriptStruct* structType)
 {
-	FUStructProxy* p = (FUStructProxy*)luaL_checkudata(luaState_, idx, "UStructMT");
-	if(p->type == structType)
-		return p->ptr;
-	throwError("Invalid UStruct type, \"%s\" needed.", UTF8_TO_TCHAR(*(p->type->GetName())));
-	return nullptr;
+	structs_.Add(structType);
+
+	FUStructProxy* p = (FUStructProxy*)lua_newuserdata(luaState_, sizeof(FUStructProxy) + structType->GetStructureSize());
+	p->type = structType;
+	p->ptr = p + 1;
+
+	p->type->InitializeStruct(p->ptr);
+	p->type->CopyScriptStruct(p->ptr, structPtr);
+	// set metatable.
+	luaL_setmetatable(luaState_, "UStructMT");
 }
 
-FString FLuaEnv::checkFString(int idx)
-{
-	return UTF8_TO_TCHAR(luaL_checkstring(luaState_, idx));
+void FLuaEnv::pushString(const TCHAR* s) 
+{ 
+	lua_pushstring(luaState_, TCHAR_TO_UTF8(s)); 
 }
 
-FText FLuaEnv::checkFText(int idx)
+void FLuaEnv::pushFString(const FString& str)
 {
-	return FText::FromString(UTF8_TO_TCHAR(luaL_checkstring(luaState_, idx)));
+	lua_pushstring(luaState_, TCHAR_TO_UTF8(*str));
 }
 
-FName FLuaEnv::checkFName(int idx)
+void FLuaEnv::pushFText(const FText& txt)
 {
-	return UTF8_TO_TCHAR(luaL_checkstring(luaState_, idx));
+	pushFString(txt.ToString());
+}
+
+void FLuaEnv::pushFName(FName name)
+{
+	// todo: optimize?
+	pushFString(name.ToString());
 }
 
 void FLuaEnv::pushPropertyValue(void* obj, UProperty* prop)
@@ -479,79 +459,123 @@ void FLuaEnv::pushPropertyValue(void* obj, UProperty* prop)
 	}
 }
 
-void FLuaEnv::pushUObject(UObject* obj)
+void FLuaEnv::throwError(const char* fmt, ...)
 {
-	if(obj)
-	{
-		// Find in uobjTable first.
-		lua_rawgeti(luaState_, LUA_REGISTRYINDEX, uobjTable_);
-		lua_pushlightuserdata(luaState_, obj);
-		lua_rawget(luaState_, -2);
-		//=========================================
-		//=>uobjTable_
-		//=>FUObjectProxy or nil
-		//=========================================
-		if(lua_isnil(luaState_, -1))
-		{
-			lua_pop(luaState_, 1);
-			lua_pushlightuserdata(luaState_, obj);
-			lua_pushvalue(luaState_, -1);
-			FUObjectProxy* p = (FUObjectProxy*)lua_newuserdata(luaState_, sizeof(FUObjectProxy));
-			p->ptr = obj;
-			//=========================================
-			//=>uobjTable_
-			//=>uobjptr
-			//=>uobjptr
-			//=>FUObjectProxy
-			//=========================================
-			lua_rawset(luaState_, -4);
-			lua_rawget(luaState_, -2);
-			lua_replace(luaState_, -2);
-			//=========================================
-			//=>FUObjectProxy
-			//=========================================
+  va_list argp;
+  va_start(argp, fmt);
+  lua_pushvfstring(luaState_, fmt, argp);
+  va_end(argp);
+  lua_error(luaState_);
+}
 
-			// set metatable.
-			luaL_setmetatable(luaState_, "UObjectMT");
-		}
-		else
+struct FFuncParamStruct
+{
+	FFuncParamStruct(UFunction* f, void* b):
+		buffer(b),
+		parmNum(0), 
+		retParm(nullptr),
+		outParmNum(0)
+	{
+		for(TFieldIterator<UProperty> it(f); it && it->HasAnyPropertyFlags(CPF_Parm); ++it)
 		{
-			lua_replace(luaState_, -2);
+			UProperty* parm = *it;
+			parm->InitializeValue_InContainer(buffer);
+			if(parm->HasAnyPropertyFlags(CPF_ReturnParm))
+			{
+				// return parameter.
+				retParm = parm;
+			}
+			else
+			{
+				parms[parmNum] = parm;
+				parmNum++;
+				check(parmNum <= ParmMax);
+				if((parm->PropertyFlags & (CPF_ConstParm | CPF_OutParm)) == CPF_OutParm)
+				{
+					// out parameter.
+					outParms[outParmNum] = parm;
+					outParmNum++;
+				}
+			}
 		}
 	}
-	else
-		lua_pushnil(luaState_);
-}
 
-void FLuaEnv::pushUStruct(void* structPtr, UScriptStruct* structType)
+	~FFuncParamStruct()
+	{
+		for(int i = 0; i < parmNum; i++)
+			parms[i]->DestroyValue_InContainer(buffer);
+		if(retParm)
+			retParm->DestroyValue_InContainer(buffer);
+		ULUA_LOG(Verbose, TEXT("FFuncParamStruct destructed."));
+	}
+
+	void*		buffer;
+	enum {ParmMax = 16};
+	UProperty*	parms[ParmMax];
+	int			parmNum;
+	UProperty*	retParm;
+	UProperty*	outParms[ParmMax];
+	int			outParmNum;
+};
+
+int FLuaEnv::callUFunction(UFunction* func)
 {
-	structs_.Add(structType);
+	// Get Self Object.
+	bool isStaticFunc = func->HasAnyFunctionFlags(FUNC_Static);
+	int paramIdx = isStaticFunc?2:3;
+	UClass* cls = func->GetOwnerClass();
+	UObject* obj = isStaticFunc ? cls->GetDefaultObject() : toUObject(2, cls, true);
+	if(!obj)
+	{
+		throwError("Invalid self UObject");
+	}
 
-	FUStructProxy* p = (FUStructProxy*)lua_newuserdata(luaState_, sizeof(FUStructProxy) + structType->GetStructureSize());
-	p->type = structType;
-	p->ptr = p + 1;
+	// Create param buffer from current stack.
+	uint8* paramBuffer = (uint8*)FMemory_Alloca(func->ParmsSize);
 
-	p->type->InitializeStruct(p->ptr);
-	p->type->CopyScriptStruct(p->ptr, structPtr);
-	// set metatable.
-	luaL_setmetatable(luaState_, "UStructMT");
+	// Initialize param buffer.
+	FFuncParamStruct params(func, paramBuffer);
+
+	// Get function parameter value from lua stack.
+	for(int i = 0; i < params.parmNum; i++)
+	{
+		toPropertyValue(paramBuffer, params.parms[i], paramIdx, true);
+		paramIdx++;
+	}
+
+	// Call UFunction.
+	obj->ProcessEvent(func, paramBuffer);
+
+	int retNum = 0;
+	// Return value to lua stack.
+	if(params.retParm)
+	{
+		pushPropertyValue(paramBuffer, params.retParm);
+		retNum++;
+	}
+
+	// Return out value to lua stack.
+	for(int i = 0; i < params.outParmNum; i++)
+	{
+		pushPropertyValue(paramBuffer, params.outParms[i]);
+		retNum++;
+	}
+
+	return retNum;
 }
 
-void FLuaEnv::pushFString(const FString& str)
+int FLuaEnv::callUClass(UClass* cls)
 {
-	lua_pushstring(luaState_, TCHAR_TO_UTF8(*str));
+	// todo.
+	return 0;
 }
 
-void FLuaEnv::pushFText(const FText& txt)
+int FLuaEnv::callStruct(UScriptStruct* s)
 {
-	pushFString(txt.ToString());
+	// todo.
+	return 0;
 }
 
-void FLuaEnv::pushFName(FName name)
-{
-	// todo: optimize?
-	pushFString(name.ToString());
-}
 
 //////////////////////////////////////////////////////////////////////////
 /************************************************************************/
@@ -580,7 +604,7 @@ int FLuaEnv::uobjMTIndex()
 {
 	FUObjectProxy* p = (FUObjectProxy*)lua_touserdata(luaState_, 1);
 	UObject* obj = p->ptr;
-	FName name = checkFName(2);
+	FName name = toFName(2, true);
 	UClass* cls = Cast<UClass>(obj);
 	// todo: optimize.
 	UField* field = FindField<UField>(cls, name);
@@ -605,12 +629,12 @@ int FLuaEnv::uobjMTNewIndex()
 {
 	FUObjectProxy* p = (FUObjectProxy*)lua_touserdata(luaState_, 1);
 	UObject* obj = p->ptr;
-	FName name = checkFName(2);
+	FName name = toFName(2, true);
 	// todo: optimize.
 	UProperty* prop = FindField<UProperty>(obj->GetClass(), name);
 	if (prop)
 	{
-		checkPropertyValue(obj, prop, 3);
+		toPropertyValue(obj, prop, 3, true);
 	}
 	else
 	{
@@ -648,7 +672,7 @@ int FLuaEnv::uobjMTCall()
 int FLuaEnv::ustructMTIndex()
 {
 	FUStructProxy* p = (FUStructProxy*)lua_touserdata(luaState_, 1);
-	FName name = checkFName(2);
+	FName name = toFName(2, true);
 	// todo: optimize.
 	UProperty* prop = FindField<UProperty>(p->type, name);
 	if (prop)
@@ -666,13 +690,13 @@ int FLuaEnv::ustructMTIndex()
 int FLuaEnv::ustructMTNewIndex()
 {
 	FUStructProxy* p = (FUStructProxy*)lua_touserdata(luaState_, 1);
-	FName name = checkFName(2);
+	FName name = toFName(2, true);
 	// todo: optimize.
 	UProperty* prop = FindField<UProperty>(p->type, name);
 	if (prop)
 	{
 		// Return property value.
-		checkPropertyValue(p->ptr, prop, 3);
+		toPropertyValue(p->ptr, prop, 3, true);
 	}
 	else
 	{
