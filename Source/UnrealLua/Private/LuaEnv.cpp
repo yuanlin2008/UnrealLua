@@ -14,6 +14,30 @@ struct FUStructProxy
 	void* ptr;
 };
 
+static int print(lua_State* L)
+{
+  int n = lua_gettop(L);  /* number of arguments */
+  int i;
+  FString msg;
+  lua_getglobal(L, "tostring");
+  for (i=1; i<=n; i++) {
+    const char *s;
+    size_t l;
+    lua_pushvalue(L, -1);  /* function to be called */
+    lua_pushvalue(L, i);   /* value to print */
+    lua_call(L, 1, 1);
+    s = lua_tolstring(L, -1, &l);  /* get result */
+    if (s == NULL)
+      return luaL_error(L, "'tostring' must return a string to 'print'");
+    if (i>1) 
+		msg += TEXT("\t");
+	msg += UTF8_TO_TCHAR(s);
+    lua_pop(L, 1);  /* pop result */
+  }
+  ULUA_LOG(Log, TEXT("print:%s"), *msg);
+  return 0;
+}
+
 FLuaEnv::FLuaEnv():
 	luaState_(nullptr),
 	memUsed_(0),
@@ -21,12 +45,17 @@ FLuaEnv::FLuaEnv():
 	luaObjTable_(LUA_NOREF),
 	luaObjRefInfoTable_(LUA_NOREF)
 {
-	luaEnvMap_.Add(luaState_, this);
 	luaState_ = lua_newstate(LUA_CALLBACK(memAlloc), this);
 	check(luaState_);
+	luaEnvMap_.Add(luaState_, this);
 	lua_atpanic(luaState_, LUA_CALLBACK(handlePanic));
+	
+	luaL_openlibs(luaState_);
 
 	int top = lua_gettop(luaState_);
+
+	lua_pushcfunction(luaState_, print);
+	lua_setglobal(luaState_, "print");
 
 	// Create UObject table.
 	lua_newtable(luaState_);
@@ -49,6 +78,8 @@ FLuaEnv::FLuaEnv():
 	lua_setfield(luaState_, -2, "__newindex");
 	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjMTCall));
 	lua_setfield(luaState_, -2, "__call");
+	lua_pushcfunction(luaState_, LUA_CALLBACK(uobjMTToString));
+	lua_setfield(luaState_, -2, "__tostring");
 	lua_pop(luaState_, 1);
 
 	// Create UStruct proxy metatable.
@@ -67,8 +98,8 @@ FLuaEnv::FLuaEnv():
 
 FLuaEnv::~FLuaEnv()
 {
-	luaEnvMap_.Remove(luaState_);
 	lua_close(luaState_);
+	luaEnvMap_.Remove(luaState_);
 	ULUA_LOG(Log, TEXT("FLuaEnv destroyed."));
 }
 
@@ -627,9 +658,8 @@ int FLuaEnv::uobjMTIndex()
 	FUObjectProxy* p = (FUObjectProxy*)lua_touserdata(luaState_, 1);
 	UObject* obj = p->ptr;
 	FName name = toFName(2, true);
-	UClass* cls = Cast<UClass>(obj);
 	// todo: optimize.
-	UField* field = FindField<UField>(cls, name);
+	UField* field = FindField<UField>(obj->GetClass(), name);
 	if (auto prop = Cast<UProperty>(field))
 	{
 		// Return property value.
@@ -689,6 +719,14 @@ int FLuaEnv::uobjMTCall()
 		throwError("Invalid object \"%s\"", TCHAR_TO_UTF8(*(obj->GetName())));
 	}
 	return 0;
+}
+
+int FLuaEnv::uobjMTToString()
+{
+	FUObjectProxy* p = (FUObjectProxy*)lua_touserdata(luaState_, 1);
+	UObject* obj = p->ptr;
+	pushFString(obj->GetName());
+	return 1;
 }
 
 int FLuaEnv::ustructMTIndex()

@@ -16,10 +16,16 @@ class UNREALLUA_API AUnrealLuaGameModeBase : public AGameModeBase
 	GENERATED_BODY()
 	
 public:
-	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage);
+	AUnrealLuaGameModeBase();
+
+	UPROPERTY()
+	FString PropStr;
+
 	UFUNCTION()
 	int testfunc(UObject*& o, int& i, const FVector v) { return 0; }
 
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 private:
-	FLuaEnv luaEnv_;
+	FLuaEnv* luaEnv_;
 };
