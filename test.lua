@@ -1,0 +1,3 @@
+
+local self = ...
+print(self)

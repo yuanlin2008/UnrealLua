@@ -459,6 +459,28 @@ void FLuaEnv::pushPropertyValue(void* obj, UProperty* prop)
 	}
 }
 
+bool FLuaEnv::loadString(const char* s)
+{
+	if (luaL_loadstring(luaState_, s) != LUA_OK)
+	{
+		ULUA_LOG(Error, TEXT("%s"), UTF8_TO_TCHAR(lua_tostring(luaState_, -1)));
+		lua_pop(luaState_, 1);
+		return false;
+	}
+	return true;
+}
+
+bool FLuaEnv::pcall(int n, int r)
+{
+	if (lua_pcall(luaState_, n, r, 0) != LUA_OK)
+	{
+		ULUA_LOG(Error, TEXT("%s"), UTF8_TO_TCHAR(lua_tostring(luaState_, -1)));
+		lua_pop(luaState_, 1);
+		return false;
+	}
+	return true;
+}
+
 void FLuaEnv::throwError(const char* fmt, ...)
 {
   va_list argp;

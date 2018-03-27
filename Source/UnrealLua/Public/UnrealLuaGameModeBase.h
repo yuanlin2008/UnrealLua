@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "LuaEnv.h"
 #include "UnrealLuaGameModeBase.generated.h"
 
 /**
@@ -15,6 +16,10 @@ class UNREALLUA_API AUnrealLuaGameModeBase : public AGameModeBase
 	GENERATED_BODY()
 	
 public:
+	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage);
 	UFUNCTION()
 	int testfunc(UObject*& o, int& i, const FVector v) { return 0; }
+
+private:
+	FLuaEnv luaEnv_;
 };
