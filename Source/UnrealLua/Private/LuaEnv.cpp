@@ -41,9 +41,7 @@ static int print(lua_State* L)
 FLuaEnv::FLuaEnv():
 	luaState_(nullptr),
 	memUsed_(0),
-	uobjTable_(LUA_NOREF),
-	luaObjTable_(LUA_NOREF),
-	luaObjRefInfoTable_(LUA_NOREF)
+	uobjTable_(LUA_NOREF)
 {
 	luaState_ = lua_newstate(LUA_CALLBACK(memAlloc), this);
 	check(luaState_);
@@ -64,11 +62,6 @@ FLuaEnv::FLuaEnv():
 	lua_setfield(luaState_, -2, "__mode"); // weak value table.
 	lua_setmetatable(luaState_, -2);
 	uobjTable_ = luaL_ref(luaState_, LUA_REGISTRYINDEX);
-
-	lua_newtable(luaState_);
-	luaObjTable_ = luaL_ref(luaState_, LUA_REGISTRYINDEX);
-	lua_newtable(luaState_);
-	luaObjRefInfoTable_ = luaL_ref(luaState_, LUA_REGISTRYINDEX);
 
 	// Create UObject proxy metatable.
 	luaL_newmetatable(luaState_, "UObjectMT");
@@ -105,14 +98,20 @@ FLuaEnv::~FLuaEnv()
 
 void FLuaEnv::AddReferencedObjects(FReferenceCollector& Collector)
 {
-	Collector.AllowEliminatingReferences(false);
+	//Collector.AllowEliminatingReferences(false);
 	// Iterate all referenced UObject from uobjTable.
 	lua_rawgeti(luaState_, LUA_REGISTRYINDEX, uobjTable_);
 	lua_pushnil(luaState_);
 	while(lua_next(luaState_, -2) != 0)
 	{
 		UObject* uobj = (UObject*)lua_touserdata(luaState_, -2);
-		if(uobj)
+		FUObjectProxy* p = (FUObjectProxy*)lua_touserdata(luaState_, -1);
+		if(uobj->IsPendingKill())
+		{
+			if(p && p->ptr)
+				p->ptr = nullptr;
+		}
+		else
 			Collector.AddReferencedObject(uobj);
 		lua_pop(luaState_, 1);
 	}
@@ -123,7 +122,7 @@ void FLuaEnv::AddReferencedObjects(FReferenceCollector& Collector)
 		UObject* uobj = it;
 		Collector.AddReferencedObject(uobj);
 	}
-	Collector.AllowEliminatingReferences(true);
+	//Collector.AllowEliminatingReferences(true);
 }
 
 UObject* FLuaEnv::toUObject(int idx, UClass* cls, bool check)
@@ -131,7 +130,7 @@ UObject* FLuaEnv::toUObject(int idx, UClass* cls, bool check)
 	if(lua_isnil(luaState_, idx))
 		return nullptr;
 	FUObjectProxy* p = (FUObjectProxy*)(check?luaL_checkudata(luaState_, idx, "UObjectMT"):luaL_testudata(luaState_, idx, "UObjectMT"));
-	if(!p)
+	if(!p || !(p->ptr))
 		return nullptr;
 	UObject* o = p->ptr;
 	if(cls == nullptr || o->IsA(cls))
@@ -578,7 +577,7 @@ int FLuaEnv::callUFunction(UFunction* func)
 	int paramIdx = isStaticFunc?2:3;
 	UClass* cls = func->GetOwnerClass();
 	UObject* obj = isStaticFunc ? cls->GetDefaultObject() : toUObject(2, cls, true);
-	if(!obj)
+	if(!obj || !obj->IsA(cls))
 	{
 		throwError("Invalid self UObject");
 	}

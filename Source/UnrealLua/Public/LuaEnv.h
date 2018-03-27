@@ -69,16 +69,6 @@ private:
 	 * UObjectPtr->FUObjectProxy.
 	 */
 	int uobjTable_;
-	/** 
-	 * A table in registry to create lua object references. 
-	 * refs=>luaobj 
-	 */
-	int luaObjTable_;
-	/** 
-	 * A table in registry to save lua object reference info. 
-	 * luaobj=>FLuaObjRefInfo 
-	 */
-	int luaObjRefInfoTable_;
 
 	/**
 	 * Referenced structs.
