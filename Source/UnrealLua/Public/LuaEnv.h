@@ -4,7 +4,9 @@
 #include "GCObject.h"
 #include "lua.hpp"
 
-class FLuaEnv : public FGCObject
+class ULuaDelegate;
+
+class UNREALLUA_API FLuaEnv : public FGCObject
 {
 public:
 	friend class FLuaObject;
@@ -59,6 +61,9 @@ private:
 	int callUFunction(UFunction* func);
 	int callUClass(UClass* cls);
 	int callStruct(UScriptStruct* s);
+
+	friend class ULuaDelegate;
+	void invokeDelegate(ULuaDelegate* d, void* params);
 
 	lua_State* luaState_;
 	/** Total memory used by this lua state. */

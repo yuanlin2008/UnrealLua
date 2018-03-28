@@ -1,4 +1,5 @@
 #include "LuaEnv.h"
+#include "LuaDelegate.h"
 #include "UnrealType.h"
 
 TMap<lua_State*, FLuaEnv*> FLuaEnv::luaEnvMap_;
@@ -36,6 +37,11 @@ static int print(lua_State* L)
   }
   ULUA_LOG(Log, TEXT("print:%s"), *msg);
   return 0;
+}
+
+void ULuaDelegate::ProcessEvent(UFunction* f, void* params)
+{
+	luaEnv->invokeDelegate(this, params);
 }
 
 FLuaEnv::FLuaEnv():
@@ -628,6 +634,10 @@ int FLuaEnv::callStruct(UScriptStruct* s)
 	return 0;
 }
 
+void FLuaEnv::invokeDelegate(ULuaDelegate* d, void* params)
+{
+	// todo.
+}
 
 //////////////////////////////////////////////////////////////////////////
 /************************************************************************/
