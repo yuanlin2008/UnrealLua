@@ -130,7 +130,7 @@ UObject* FLuaEnv::toUObject(int idx, UClass* cls, bool check)
 	if(lua_isnil(luaState_, idx))
 		return nullptr;
 	FUObjectProxy* p = (FUObjectProxy*)(check?luaL_checkudata(luaState_, idx, "UObjectMT"):luaL_testudata(luaState_, idx, "UObjectMT"));
-	if(!p || !(p->ptr))
+	if(!p || !(p->ptr) || p->ptr->IsPendingKill())
 		return nullptr;
 	UObject* o = p->ptr;
 	if(cls == nullptr || o->IsA(cls))
