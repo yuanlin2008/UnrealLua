@@ -28,7 +28,7 @@ public:
 	FText		toFText(int idx, bool check);
 	FName		toFName(int idx, bool check);
 
-	void		toPropertyValue(void* obj, UProperty* prop, int idx, bool check);
+	void		toPropertyValue(void* obj, bool isUObj, UProperty* prop, int idx, bool check);
 
 
 	//////////////////////////////////////////////////////////////////////////

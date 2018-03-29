@@ -193,7 +193,7 @@ FName FLuaEnv::toFName(int idx, bool check)
 	return UTF8_TO_TCHAR(check?luaL_checkstring(luaState_, idx):lua_tostring(luaState_, idx));
 }
 
-void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx, bool check)
+void FLuaEnv::toPropertyValue(void* obj, bool isUObj, UProperty* prop, int idx, bool check)
 {
 	if(auto p = Cast<UByteProperty>(prop))
 		p->SetPropertyValue_InContainer(obj, toInteger(idx));
@@ -263,7 +263,7 @@ void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx, bool check)
 		for(int i = 0; i < luaArrLen; i++)
 		{
 			lua_rawgeti(luaState_, idx, i+1);
-			toPropertyValue(cppArr.GetRawPtr(i), p->Inner, lua_gettop(luaState_), check);
+			toPropertyValue(cppArr.GetRawPtr(i), false, p->Inner, lua_gettop(luaState_), check);
 			lua_pop(luaState_, 1);
 		}
 	}
@@ -285,8 +285,8 @@ void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx, bool check)
 		{
 			int elementId = cppMap.AddDefaultValue_Invalid_NeedsRehash();
 			uint8* pairPtr = cppMap.GetPairPtr(elementId);
-			toPropertyValue(pairPtr + p->MapLayout.KeyOffset, p->KeyProp, lua_gettop(luaState_) - 1, check);
-			toPropertyValue(pairPtr, p->ValueProp, lua_gettop(luaState_), check);
+			toPropertyValue(pairPtr + p->MapLayout.KeyOffset, false, p->KeyProp, lua_gettop(luaState_) - 1, check);
+			toPropertyValue(pairPtr, false, p->ValueProp, lua_gettop(luaState_), check);
 			lua_pop(luaState_, 1);
 		}
 		cppMap.Rehash();
@@ -309,7 +309,7 @@ void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx, bool check)
 		{
 			int elementId = cppSet.AddDefaultValue_Invalid_NeedsRehash();
 			uint8* elementPtr = cppSet.GetElementPtr(elementId);
-			toPropertyValue(elementPtr, p->ElementProp, lua_gettop(luaState_) - 1, check);
+			toPropertyValue(elementPtr, false, p->ElementProp, lua_gettop(luaState_) - 1, check);
 			lua_pop(luaState_, 1);
 		}
 		cppSet.Rehash();
@@ -322,8 +322,20 @@ void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx, bool check)
 	}
 	else if(auto p = Cast<UDelegateProperty>(prop))
 	{
-		// todo.
-		//FScriptDelegate* sd = p->GetPropertyValuePtr_InContainer(obj);
+		if(!isUObj)
+		{
+			throwError("Can not set delegate property \"%s\".", TCHAR_TO_UTF8(*p->GetName()));
+		}
+		else
+		{
+			// todo.
+			//ULuaDelegate* d = NewObject<ULuaDelegate>();
+			//d->bindedToObj = obj;
+			//d->bindedToProp = p;
+			//FScriptDelegate sd;
+			//sd.BindUFunction(NewObject<ULuaDelegate>())
+			//p->SetPropertyValue_InContainer(obj, )
+		}
 	}
 	else if(auto p = Cast<UMulticastDelegateProperty>(prop))
 	{
@@ -620,7 +632,7 @@ int FLuaEnv::callUFunction(UFunction* func)
 	// Get function parameter value from lua stack.
 	for(int i = 0; i < params.parmNum; i++)
 	{
-		toPropertyValue(paramBuffer, params.parms[i], paramIdx, true);
+		toPropertyValue(paramBuffer, false, params.parms[i], paramIdx, true);
 		paramIdx++;
 	}
 
@@ -747,7 +759,7 @@ int FLuaEnv::uobjMTNewIndex()
 	UProperty* prop = FindField<UProperty>(obj->GetClass(), name);
 	if (prop)
 	{
-		toPropertyValue(obj, prop, 3, true);
+		toPropertyValue(obj, true, prop, 3, true);
 	}
 	else
 	{
@@ -817,7 +829,7 @@ int FLuaEnv::ustructMTNewIndex()
 	if (prop)
 	{
 		// Return property value.
-		toPropertyValue(p->ptr, prop, 3, true);
+		toPropertyValue(p->ptr, false, prop, 3, true);
 	}
 	else
 	{

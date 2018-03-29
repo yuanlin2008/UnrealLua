@@ -7,6 +7,14 @@
 #include "LuaEnv.h"
 #include "UnrealLuaGameModeBase.generated.h"
 
+USTRUCT()
+struct FTestA
+{
+	GENERATED_BODY()
+	UPROPERTY()
+	FActorDestroyedSignature OnDestroyed;
+};
+
 /**
  * 
  */
@@ -23,6 +31,9 @@ public:
 
 	UFUNCTION()
 	int testfunc(UObject*& o, int& i, const FVector v) { return 0; }
+
+	//UFUNCTION()
+	//void testfunc1(FActorDestroyedSignature s) {}
 
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
