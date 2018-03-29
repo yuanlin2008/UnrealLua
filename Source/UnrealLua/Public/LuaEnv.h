@@ -4,8 +4,6 @@
 #include "GCObject.h"
 #include "lua.hpp"
 
-class ULuaDelegate;
-
 class UNREALLUA_API FLuaEnv : public FGCObject
 {
 public:
@@ -64,6 +62,8 @@ private:
 
 	friend class ULuaDelegate;
 	void invokeDelegate(ULuaDelegate* d, void* params);
+	bool isDelegateUnused(ULuaDelegate* d);
+	void clearUnusedDelegate(ULuaDelegate* d);
 
 	lua_State* luaState_;
 	/** Total memory used by this lua state. */
@@ -79,6 +79,12 @@ private:
 	 * Referenced structs.
 	 */
 	TSet<UScriptStruct*> structs_;
+
+	/** 
+	 * Delegate instances.
+	 * todo: cache unused.
+	 */
+	TArray<ULuaDelegate*> delegates_;
 
 	static FLuaEnv* getLuaEnv(lua_State* L) { return luaEnvMap_[L]; }
 	/** Memory allocation function for lua vm. */

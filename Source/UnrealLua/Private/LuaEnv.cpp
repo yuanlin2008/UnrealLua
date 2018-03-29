@@ -39,6 +39,7 @@ static int print(lua_State* L)
   return 0;
 }
 
+FName ULuaDelegate::NAME_Invoke(TEXT("invoke"));
 void ULuaDelegate::ProcessEvent(UFunction* f, void* params)
 {
 	luaEnv->invokeDelegate(this, params);
@@ -104,8 +105,11 @@ FLuaEnv::~FLuaEnv()
 
 void FLuaEnv::AddReferencedObjects(FReferenceCollector& Collector)
 {
+	ULUA_LOG(Verbose, TEXT("Performing UE GC..."));
 	//Collector.AllowEliminatingReferences(false);
+
 	// Iterate all referenced UObject from uobjTable.
+	int num = 0;
 	lua_rawgeti(luaState_, LUA_REGISTRYINDEX, uobjTable_);
 	lua_pushnil(luaState_);
 	while(lua_next(luaState_, -2) != 0)
@@ -114,20 +118,38 @@ void FLuaEnv::AddReferencedObjects(FReferenceCollector& Collector)
 		FUObjectProxy* p = (FUObjectProxy*)lua_touserdata(luaState_, -1);
 		if(uobj->IsPendingKill())
 		{
-			if(p && p->ptr)
+			if (p && p->ptr)
 				p->ptr = nullptr;
 		}
 		else
 			Collector.AddReferencedObject(uobj);
 		lua_pop(luaState_, 1);
+		num++;
 	}
 	lua_pop(luaState_, 1);
+	ULUA_LOG(Verbose, TEXT("Referenced UObject(%d)"), num);
+
 	// Iterate all structs.
 	for(auto& it : structs_)
 	{
 		UObject* uobj = it;
 		Collector.AddReferencedObject(uobj);
 	}
+
+	// Clearup unused delegates.
+	delegates_.RemoveAllSwap([this](ULuaDelegate* d) 
+	{
+		if (isDelegateUnused(d))
+		{
+			clearUnusedDelegate(d);
+			return true;
+		}
+		return false;
+	});
+	for (auto d : delegates_)
+		Collector.AddReferencedObject(d);
+	ULUA_LOG(Verbose, TEXT("Valid ULuaDelegate(%d)"), delegates_.Num());
+
 	//Collector.AllowEliminatingReferences(true);
 }
 
@@ -301,6 +323,7 @@ void FLuaEnv::toPropertyValue(void* obj, UProperty* prop, int idx, bool check)
 	else if(auto p = Cast<UDelegateProperty>(prop))
 	{
 		// todo.
+		//FScriptDelegate* sd = p->GetPropertyValuePtr_InContainer(obj);
 	}
 	else if(auto p = Cast<UMulticastDelegateProperty>(prop))
 	{
@@ -637,6 +660,35 @@ int FLuaEnv::callStruct(UScriptStruct* s)
 void FLuaEnv::invokeDelegate(ULuaDelegate* d, void* params)
 {
 	// todo.
+}
+
+bool FLuaEnv::isDelegateUnused(ULuaDelegate* d)
+{
+	UObject* obj = d->bindedToObj.Get();
+	if (obj == nullptr)
+		return true;
+	if (auto p = Cast<UDelegateProperty>(d->bindedToProp))
+	{
+		FScriptDelegate* sd = p->GetPropertyValuePtr_InContainer(obj);
+		return !sd->IsBoundToObject(d);
+	}
+	else if (auto p = Cast<UMulticastDelegateProperty>(d->bindedToProp))
+	{
+		FMulticastScriptDelegate* msd = p->GetPropertyValuePtr_InContainer(obj);
+		return !msd->Contains(d, ULuaDelegate::NAME_Invoke);
+	}
+	else
+		check(false);
+	return true;
+}
+
+void FLuaEnv::clearUnusedDelegate(ULuaDelegate* d)
+{
+	d->bindedToObj = nullptr;
+	d->bindedToProp = nullptr;
+	luaL_unref(luaState_, LUA_REGISTRYINDEX, d->luaObjRef);
+	d->luaObjRef = LUA_NOREF;
+	ULUA_LOG(Verbose, TEXT("Clear Delegate Object \"%s\""), *(d->GetName()));
 }
 
 //////////////////////////////////////////////////////////////////////////

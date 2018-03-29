@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CoreMinimal.h"
+#include "UnrealLua.h"
 #include "LuaDelegate.generated.h"
 
 UCLASS()
@@ -17,13 +17,14 @@ public:
 	FWeakObjectPtr bindedToObj;
 
 	/** Property this delegate binded to. */
-	UPROPERTY()
 	UProperty* bindedToProp;
 
 	/** Lua Env this delegate belongs to. */
 	// todo: use TWeakPtr.
-	class FLuaEnv* luaEnv;
+	FLuaEnv* luaEnv;
 
 	/** Lua object to call. */
 	int luaObjRef;
+
+	static FName NAME_Invoke;
 };

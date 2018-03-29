@@ -4,6 +4,9 @@
 
 #include "CoreMinimal.h"
 
+class FLuaEnv;
+class ULuaDelegate;
+
 DECLARE_LOG_CATEGORY_EXTERN(UnrealLua, Log, All);
 
 #define ULUA_LOG(Verbosity, Format, ...) UE_LOG(UnrealLua, Verbosity, Format, __VA_ARGS__)
